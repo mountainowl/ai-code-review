@@ -25,6 +25,7 @@ done
     --exclude=.pytest_cache \
     --exclude=__pycache__ \
     --exclude=config/env.toml \
+    --exclude=var/state \
     --exclude=var/work \
     --exclude=var/log \
     --exclude=var/reports \

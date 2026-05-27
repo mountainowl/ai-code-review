@@ -37,7 +37,8 @@ as_root() {
 
 tmp="$(mktemp -d)"
 preserved_env=""
-trap 'rm -rf "$tmp"; if [ -n "$preserved_env" ]; then rm -f "$preserved_env"; fi' EXIT
+preserved_state=""
+trap 'rm -rf "$tmp"; if [ -n "$preserved_env" ]; then rm -f "$preserved_env"; fi; if [ -n "$preserved_state" ]; then rm -rf "$preserved_state"; fi' EXIT
 
 (cd "$SOURCE" && COPYFILE_DISABLE=1 tar \
     --exclude=.venv \
@@ -45,6 +46,7 @@ trap 'rm -rf "$tmp"; if [ -n "$preserved_env" ]; then rm -f "$preserved_env"; fi
     --exclude=.pytest_cache \
     --exclude=__pycache__ \
     --exclude=config/env.toml \
+    --exclude=var/state \
     --exclude=var/work \
     --exclude=var/log \
     --exclude=var/reports \
@@ -54,6 +56,10 @@ trap 'rm -rf "$tmp"; if [ -n "$preserved_env" ]; then rm -f "$preserved_env"; fi
 if as_root test -f "$ROOT/config/env.toml"; then
     preserved_env="$(mktemp)"
     as_root cp "$ROOT/config/env.toml" "$preserved_env"
+fi
+if as_root test -d "$ROOT/var/state"; then
+    preserved_state="$(mktemp -d)"
+    as_root cp -pR "$ROOT/var/state/." "$preserved_state/"
 fi
 if as_root test -d "$ROOT"; then
     as_root find "$ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
@@ -66,6 +72,10 @@ if [ -n "$preserved_env" ] && [ -f "$preserved_env" ]; then
     as_root cp "$preserved_env" "$ROOT/config/env.toml"
 elif [ -f "$ROOT/config/env.example.toml" ]; then
     as_root cp "$ROOT/config/env.example.toml" "$ROOT/config/env.toml"
+fi
+if [ -n "$preserved_state" ] && [ -d "$preserved_state" ]; then
+    as_root mkdir -p "$ROOT/var/state"
+    as_root cp -pR "$preserved_state/." "$ROOT/var/state/"
 fi
 if [ "$USE_SUDO" -eq 1 ]; then
     as_root chown -R "$(id -un):$(id -gn)" "$ROOT"

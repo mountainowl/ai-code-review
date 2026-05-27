@@ -46,6 +46,7 @@ def test_deploy_archive_excludes_runtime_noise() -> None:
         ".venv",
         ".git",
         "config/env.toml",
+        "var/state",
         "var/work",
         "var/log",
         "var/reports",
@@ -55,6 +56,7 @@ def test_deploy_archive_excludes_runtime_noise() -> None:
 
     assert 'rm -rf "$ROOT"' not in install
     assert 'find "$ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +' in install
+    assert "preserved_state" in install
     assert "COPYFILE_DISABLE=1 tar" in deploy
     assert "COPYFILE_DISABLE=1 tar" in install
 
