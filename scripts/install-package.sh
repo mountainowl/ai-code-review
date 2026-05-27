@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+PATH="/usr/local/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+export PATH
+
 ROOT="${LLM_REVIEWER_INSTALL_ROOT:-${LLM_CODE_REVIEW_ROOT:-$HOME/.local/share/llm-reviewer}}"
 SOURCE=""
 INSTALL_AGENT_CONFIG=0
@@ -90,6 +93,7 @@ if [ "$INSTALL_AGENT_CONFIG" -eq 1 ]; then
     mkdir -p "$HOME/.codex/skills" "$HOME/.claude"
     escaped_root="$(printf '%s' "$ROOT" | sed 's/[&|]/\\&/g')"
     sed "s|{{ROOT}}|$escaped_root|g" "$ROOT/deploy/templates/codex-config.toml" > "$HOME/.codex/config.toml"
+    sed "s|{{ROOT}}|$escaped_root|g" "$ROOT/deploy/templates/codex-profile.toml" > "$HOME/.codex/llm-reviewer.config.toml"
     sed "s|{{ROOT}}|$escaped_root|g" "$ROOT/deploy/templates/claude-settings.json" > "$HOME/.claude/settings.json"
     ln -sfn "$ROOT/skills/code-review" "$HOME/.codex/skills/code-review"
     ln -sfn "$ROOT/skills/code-reviewer" "$HOME/.codex/skills/code-reviewer"

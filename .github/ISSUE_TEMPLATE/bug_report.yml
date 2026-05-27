@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible problem with LLM Reviewer.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep secrets out of the issue. Mask tokens, hostnames, and private repo paths when needed.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What failed, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Exact command, config shape, MR state, or log excerpt needed to reproduce.
+      placeholder: |
+        uv run mr-review-poller
+        ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Commit SHA, release tag, or `llm-reviewer --version` when available.
+    validations:
+      required: false
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Review backend
+      options:
+        - Codex CLI
+        - Claude CLI
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant masked logs or stack traces.
+      render: text
+    validations:
+      required: false

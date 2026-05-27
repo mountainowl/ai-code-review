@@ -26,9 +26,15 @@ def test_project_tree_keeps_config_but_not_runtime_checkouts() -> None:
     assert (ROOT / "config" / "env.example.toml").is_file()
     assert (ROOT / "docs" / "images" / "llm-reviewer-hero.png").is_file()
     assert (ROOT / "docs" / "images" / "llm-reviewer-avatar-preview.png").is_file()
+    assert (ROOT / "docs" / "images" / "gitlab-mr-review-example.png").is_file()
+    assert (ROOT / "docs" / "media" / "llm-reviewer-demo.gif").is_file()
+    assert (ROOT / "docs" / "examples" / "README.md").is_file()
     assert (ROOT / "assets" / "llm-reviewer.png").is_file()
     assert "docs/images/llm-reviewer-hero.png" in readme
     assert "docs/images/llm-reviewer-avatar-preview.png" in readme
+    assert "docs/images/gitlab-mr-review-example.png" in readme
+    assert "docs/media/llm-reviewer-demo.gif" in readme
+    assert "docs/examples/README.md" in readme
     assert "assets/llm-reviewer.png" in readme
     assert "config/env.toml" in (ROOT / ".gitignore").read_text()
     assert not any(path.name.startswith("secrets.") for path in (ROOT / "config").iterdir())
@@ -38,3 +44,27 @@ def test_project_tree_keeps_config_but_not_runtime_checkouts() -> None:
     assert (ROOT / "skills" / "code-reviewer" / "SKILL.md").is_file()
     assert not (ROOT / "root" / "usr" / "local" / "llm-code-review").exists()
     assert not any((ROOT / "var").glob("work/**/.git"))
+
+
+def test_launch_readiness_files_exist() -> None:
+    required = [
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+        "SUPPORT.md",
+        "CODE_OF_CONDUCT.md",
+        ".github/workflows/scorecard.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/ISSUE_TEMPLATE/bug_report.yml",
+        ".github/ISSUE_TEMPLATE/feature_request.yml",
+    ]
+
+    missing = [path for path in required if not (ROOT / path).is_file()]
+    assert missing == []
+
+    readme = (ROOT / "README.md").read_text()
+    assert "./scripts/install-package.sh" in readme
+    assert "prompt, skill, config template, wrapper scripts" in readme
+    assert "pipx install git+" not in readme
+    assert "api.scorecard.dev/projects/github.com/mountainowl/ai-code-review/badge" in readme
+    assert "actions/workflows/ci.yml/badge.svg" not in readme
+    assert "Run it as a poller beside your" in readme
