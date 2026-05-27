@@ -52,6 +52,7 @@ def test_launch_readiness_files_exist() -> None:
         "SECURITY.md",
         "SUPPORT.md",
         "CODE_OF_CONDUCT.md",
+        ".github/workflows/ci.yml",
         ".github/workflows/scorecard.yml",
         ".github/PULL_REQUEST_TEMPLATE.md",
         ".github/ISSUE_TEMPLATE/bug_report.yml",
@@ -65,6 +66,6 @@ def test_launch_readiness_files_exist() -> None:
     assert "./scripts/install-package.sh" in readme
     assert "prompt, skill, config template, wrapper scripts" in readme
     assert "pipx install git+" not in readme
+    assert "actions/workflows/ci.yml/badge.svg" in readme
     assert "api.scorecard.dev/projects/github.com/mountainowl/ai-code-review/badge" in readme
-    assert "actions/workflows/ci.yml/badge.svg" not in readme
     assert "Run it as a poller beside your" in readme
