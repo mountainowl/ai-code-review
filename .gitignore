@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.DS_Store
+
+# Runtime artifacts created by the poller.
+var/jobs/
+var/log/
+var/reports/
+var/work/
+var/worktrees/
+var/state/poller.lock
+var/state/*.sqlite
+var/state/*.sqlite-*
+
+# Real secrets are kept locally for safekeeping, not for source control.
+config/secrets.env

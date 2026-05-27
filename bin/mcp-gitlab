@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+ROOT="${LLM_CODE_REVIEW_ROOT:-$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)}"
+export LLM_CODE_REVIEW_ROOT="$ROOT"
+for env_file in "$ROOT/config/config.env" "$ROOT/config/secrets.env"; do
+    if [ -r "$env_file" ]; then
+        set -a
+        . "$env_file"
+        set +a
+    fi
+done
+: "${GITLAB_API_URL:=https://gitlab.com/api/v4}"
+: "${GITLAB_PERSONAL_ACCESS_TOKEN:=${GITLAB_TOKEN:-}}"
+export GITLAB_API_URL GITLAB_PERSONAL_ACCESS_TOKEN
+: "${GITLAB_DENIED_TOOLS_REGEX:=^(delete_.*|merge_merge_request|push_files)$}"
+export GITLAB_DENIED_TOOLS_REGEX
+exec /usr/local/bin/mcp-gitlab "$@"

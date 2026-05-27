@@ -1,0 +1,27 @@
+[project]
+name = "llm-reviewer"
+version = "0.1.0"
+description = "GitLab merge-request code review poller backed by Codex and Claude CLI skills."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "opentelemetry-api>=1.42.1",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.42.1",
+    "opentelemetry-sdk>=1.42.1",
+]
+
+[project.scripts]
+mr-review-poller = "llm_reviewer.poller:main"
+code-review-codex = "llm_reviewer.codex_runner:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=9.0.1",
+]
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.12.0"]
+build-backend = "uv_build"
