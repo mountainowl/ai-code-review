@@ -398,6 +398,28 @@ def get_mr_discussion(cfg: dict, token: str, project: str, iid: int, discussion_
     return data
 
 
+def find_discussion_by_body(cfg: dict, token: str, project: str, iid: int, body: str) -> str:
+    encoded = urllib.parse.quote(project, safe="")
+    for discussion in api_pages(cfg["gitlab_url"], token, f"/projects/{encoded}/merge_requests/{iid}/discussions"):
+        discussion_id = discussion.get("id")
+        for note in discussion.get("notes") or []:
+            if note.get("body") == body and discussion_id:
+                return str(discussion_id)
+    return ""
+
+
+def create_merge_request_discussion(cfg: dict, token: str, project: str, iid: int, body: str, position: dict) -> dict:
+    encoded = urllib.parse.quote(project, safe="")
+    data, _ = api(
+        cfg["gitlab_url"],
+        token,
+        "POST",
+        f"/projects/{encoded}/merge_requests/{iid}/discussions",
+        {"body": body, "position": position},
+    )
+    return data if isinstance(data, dict) else {}
+
+
 def slug(value: str) -> str:
     return "".join(c if c.isalnum() else "-" for c in value).strip("-").lower()
 
@@ -698,6 +720,8 @@ def mcp_call_tool(name: str, arguments: dict) -> dict:
 
 
 def mcp_discussion_id(result: dict) -> str:
+    if result.get("id"):
+        return str(result["id"])
     for item in result.get("content") or []:
         text = item.get("text") if isinstance(item, dict) else None
         if not text:
@@ -709,6 +733,10 @@ def mcp_discussion_id(result: dict) -> str:
         if isinstance(data, dict) and data.get("id"):
             return str(data["id"])
     return ""
+
+
+def discussion_id_from_response(response: dict) -> str:
+    return str(response.get("id") or "")
 
 
 def classify_discussion_outcome(discussion: dict, bot_username: str, mr_state: str) -> dict:
@@ -922,7 +950,13 @@ Return [] when there are no actionable findings."""
 
 def post_inline_finding(cfg: dict, token: str, project: str, iid: int, body: str, position: dict) -> str:
     result = mcp_call_tool("create_merge_request_thread", mcp_thread_args(project, iid, body, position))
-    return mcp_discussion_id(result)
+    discussion_id = mcp_discussion_id(result)
+    if discussion_id:
+        return discussion_id
+    existing = find_discussion_by_body(cfg, token, project, iid, body)
+    if existing:
+        return existing
+    return discussion_id_from_response(create_merge_request_discussion(cfg, token, project, iid, body, position))
 
 
 def emit_finding_metric(

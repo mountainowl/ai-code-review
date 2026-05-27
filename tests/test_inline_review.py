@@ -253,6 +253,51 @@ max_findings_per_merge_request = 9
         self.assertEqual("body", args["body"])
         self.assertEqual(12, args["position"]["new_line"])
 
+    def test_post_inline_finding_uses_mcp_discussion_id(self):
+        with patch("llm_reviewer.poller.mcp_call_tool", return_value={"id": "disc-1"}):
+            discussion_id = poller.post_inline_finding(
+                {"gitlab_url": "https://gitlab.com"},
+                "token",
+                "group/repo",
+                1,
+                "body",
+                {"position_type": "text"},
+            )
+
+        self.assertEqual("disc-1", discussion_id)
+
+    def test_post_inline_finding_falls_back_to_existing_body_match(self):
+        with patch("llm_reviewer.poller.mcp_call_tool", return_value={}):
+            with patch("llm_reviewer.poller.find_discussion_by_body", return_value="disc-existing") as finder:
+                with patch("llm_reviewer.poller.create_merge_request_discussion") as creator:
+                    discussion_id = poller.post_inline_finding(
+                        {"gitlab_url": "https://gitlab.com"},
+                        "token",
+                        "group/repo",
+                        1,
+                        "body",
+                        {"position_type": "text"},
+                    )
+
+        self.assertEqual("disc-existing", discussion_id)
+        finder.assert_called_once()
+        creator.assert_not_called()
+
+    def test_post_inline_finding_falls_back_to_rest_create(self):
+        with patch("llm_reviewer.poller.mcp_call_tool", return_value={}):
+            with patch("llm_reviewer.poller.find_discussion_by_body", return_value=""):
+                with patch("llm_reviewer.poller.create_merge_request_discussion", return_value={"id": "disc-rest"}):
+                    discussion_id = poller.post_inline_finding(
+                        {"gitlab_url": "https://gitlab.com"},
+                        "token",
+                        "group/repo",
+                        1,
+                        "body",
+                        {"position_type": "text"},
+                    )
+
+        self.assertEqual("disc-rest", discussion_id)
+
 
 if __name__ == "__main__":
     unittest.main()
