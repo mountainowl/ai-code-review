@@ -31,13 +31,14 @@ thread.
 ## What It Does
 
 ```mermaid
-flowchart LR
-    A["Poll GitLab projects"] --> B["Find eligible MRs"]
-    B --> C["Fork review worker"]
-    C --> D["Run Codex or Claude skill"]
-    D --> E["Parse structured findings"]
-    E --> F["Post inline GitLab discussions"]
-    F --> G["Persist state and telemetry"]
+flowchart TB
+    A["GitLab merge requests"]
+    B["Poller and SQLite state"]
+    C["Codex or Claude review skill"]
+    D["Inline GitLab discussions"]
+    E["OpenTelemetry and outcome sync"]
+
+    A --> B --> C --> D --> E
 ```
 
 The poller does not try to be a code-review brain. It orchestrates GitLab,
