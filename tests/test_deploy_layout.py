@@ -26,6 +26,7 @@ def test_deployable_tree_contains_all_runtime_assets() -> None:
         "bin/env",
         "config/env.example.toml",
         "deploy/templates/codex-config.toml",
+        "deploy/templates/codex-profile.toml",
         "deploy/templates/claude-settings.json",
         "prompts/00-meta.md",
         "skills/code-reviewer/SKILL.md",
@@ -36,11 +37,15 @@ def test_deployable_tree_contains_all_runtime_assets() -> None:
 
     missing = [path for path in required if not (ROOT / path).exists()]
     assert missing == []
+    mcp_wrapper = (ROOT / "bin" / "mcp-gitlab").read_text()
+    assert "command -v mcp-gitlab" in mcp_wrapper
+    assert "command -v gitlab-mcp" in mcp_wrapper
 
 
 def test_deploy_archive_excludes_runtime_noise() -> None:
     deploy = (ROOT / "scripts" / "deploy-package.sh").read_text()
     install = (ROOT / "scripts" / "install-package.sh").read_text()
+    env_wrapper = (ROOT / "bin" / "env").read_text()
 
     for pattern in [
         ".venv",
@@ -56,9 +61,12 @@ def test_deploy_archive_excludes_runtime_noise() -> None:
 
     assert 'rm -rf "$ROOT"' not in install
     assert 'find "$ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +' in install
+    assert 'PATH="/usr/local/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"' in install
+    assert 'PATH="/usr/local/bin:/opt/homebrew/bin:$HOME/.local/bin:$PATH"' in env_wrapper
     assert "preserved_state" in install
     assert "COPYFILE_DISABLE=1 tar" in deploy
     assert "COPYFILE_DISABLE=1 tar" in install
+    assert "llm-reviewer.config.toml" in install
 
 
 def test_deploy_is_not_cron_or_single_host_coupled() -> None:

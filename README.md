@@ -2,6 +2,7 @@
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-3776ab?logo=python&logoColor=white)](pyproject.toml)
 [![Managed with uv](https://img.shields.io/badge/managed%20with-uv-2f3542)](pyproject.toml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mountainowl/ai-code-review/badge)](https://scorecard.dev/viewer/?uri=github.com/mountainowl/ai-code-review)
 [![SCM adapters](https://img.shields.io/badge/SCM-adapters-2f3542)](#project-status)
 [![OpenTelemetry](https://img.shields.io/badge/metrics-OpenTelemetry-4f62ad)](#telemetry-and-roi)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111827)](LICENSE)
@@ -14,11 +15,18 @@ LLM Reviewer watches merge requests, runs a structured agent review, and posts
 only actionable findings as inline review discussions. It is built for teams
 that want early review signal without turning every MR into a chatbot thread.
 
+## Demo
+
+![LLM Reviewer demo](docs/media/llm-reviewer-demo.gif)
+
 ## Project Status
 
 GitLab-first. Small by design. Production path: polling plus inline review
 threads. Not primary yet: webhooks, GitHub posting, or pip-only installs without
 checked-out assets.
+
+Review execution is intentionally outside CI/CD. Run it as a poller beside your
+existing pipelines.
 
 ## Why Teams Use It
 
@@ -65,9 +73,11 @@ Fix: Treat Cognito validation construction failures as failed Cognito auth when 
 Confidence: 0.94
 ```
 
-Inline review example:
+Sanitized real inline finding:
 
 ![Example LLM Reviewer inline finding on a GitLab merge request](docs/images/gitlab-mr-review-example.png)
+
+More sanitized examples are in [docs/examples](docs/examples/README.md).
 
 ## Prerequisites
 
@@ -78,6 +88,17 @@ Inline review example:
 - Codex CLI or Claude CLI configured on the review host.
 
 ## Quick Start
+
+Install from a checkout so the prompt, skill, config template, wrapper scripts,
+and deployment templates stay together:
+
+```sh
+git clone https://github.com/mountainowl/ai-code-review.git
+cd ai-code-review
+./scripts/install-package.sh
+```
+
+For local development:
 
 ```sh
 git clone https://github.com/mountainowl/ai-code-review.git
@@ -226,6 +247,13 @@ deleted, replied to, marked disputed, marked false-positive, or marked duplicate
 Use `assets/llm-reviewer.png` as the GitLab or GitHub bot avatar.
 
 ![LLM Reviewer avatar preview](docs/images/llm-reviewer-avatar-preview.png)
+
+## Community
+
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
 
 ## Safety
 

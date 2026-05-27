@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose a focused improvement.
+title: "feature: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What workflow gets better if this exists?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful version.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - GitLab integration
+        - Review prompt
+        - Posting and line mapping
+        - Metrics and ROI
+        - Packaging and deployment
+        - Documentation
+        - Other
+    validations:
+      required: false
