@@ -40,6 +40,7 @@ def test_deployable_tree_contains_all_runtime_assets() -> None:
 
 def test_deploy_archive_excludes_runtime_noise() -> None:
     deploy = (ROOT / "scripts" / "deploy-package.sh").read_text()
+    install = (ROOT / "scripts" / "install-package.sh").read_text()
 
     for pattern in [
         ".venv",
@@ -51,6 +52,11 @@ def test_deploy_archive_excludes_runtime_noise() -> None:
         "__pycache__",
     ]:
         assert f"--exclude={pattern}" in deploy
+
+    assert 'rm -rf "$ROOT"' not in install
+    assert 'find "$ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +' in install
+    assert "COPYFILE_DISABLE=1 tar" in deploy
+    assert "COPYFILE_DISABLE=1 tar" in install
 
 
 def test_deploy_is_not_cron_or_single_host_coupled() -> None:

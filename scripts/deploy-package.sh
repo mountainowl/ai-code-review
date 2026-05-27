@@ -19,7 +19,7 @@ for arg in "$@"; do
     REMOTE_ARGS="$REMOTE_ARGS $quoted"
 done
 
-(cd "$PROJECT_ROOT" && tar \
+(cd "$PROJECT_ROOT" && COPYFILE_DISABLE=1 tar \
     --exclude=.venv \
     --exclude=.git \
     --exclude=.pytest_cache \
