@@ -1,0 +1,41 @@
+gitlab_url = "https://gitlab.com"
+dry_run = false
+post_summary = false
+max_reviews_per_run = 8
+max_findings_per_review = 8
+review_timeout_seconds = 1800
+
+[telemetry]
+enabled = false
+service_name = "llm-reviewer"
+environment = "prod"
+otlp_endpoint = "http://127.0.0.1:4317"
+otlp_protocol = "grpc"
+export_interval_seconds = 30
+emit_finding_events = true
+emit_outcome_sync = true
+
+[telemetry.pricing.default]
+input_per_1m = 0.0
+output_per_1m = 0.0
+cached_input_per_1m = 0.0
+
+[[projects]]
+path = "longtaildev/dataGatherer"
+enabled = true
+
+[[projects]]
+path = "longtaildev/internal-ui"
+enabled = true
+
+[[projects]]
+path = "longtaildev/commonservice"
+enabled = true
+
+[[projects]]
+path = "longtaildev/itinerary-engine"
+enabled = true
+
+[[projects]]
+path = "longtaildev/pricingOrchestrator"
+enabled = true

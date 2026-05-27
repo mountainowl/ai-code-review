@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+ROOT="${LLM_CODE_REVIEW_ROOT:-$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)}"
+PROMPT_FILE="${LLM_CODE_REVIEW_PROMPT:-$ROOT/prompts/00-meta.md}"
+if [ ! -r "$PROMPT_FILE" ]; then
+    echo "code-review prompt is not readable: $PROMPT_FILE" >&2
+    exit 2
+fi
+
+USER_PROMPT="${*:-Review the current changes.}"
+
+exec "$ROOT/bin/env" claude \
+    -p \
+    --effort medium \
+    --append-system-prompt-file "$PROMPT_FILE" \
+    "/code-review
+
+$USER_PROMPT"
