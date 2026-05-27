@@ -7,7 +7,7 @@ from llm_reviewer.telemetry.metrics import METRIC_ATTRIBUTE_KEYS, ReviewTelemetr
 
 def test_metric_attrs_exclude_high_cardinality_fields() -> None:
     attrs = metric_attrs(
-        repo="longtaildev/dataGatherer",
+        repo="example/enabled-repo",
         status="success",
         mr_iid=269,
         sha="abc",
@@ -17,7 +17,7 @@ def test_metric_attrs_exclude_high_cardinality_fields() -> None:
         discussion_id="disc",
     )
 
-    assert attrs == {"repo": "longtaildev/dataGatherer", "status": "success"}
+    assert attrs == {"repo": "example/enabled-repo", "status": "success"}
     assert "mr_iid" not in METRIC_ATTRIBUTE_KEYS
     assert "file" not in METRIC_ATTRIBUTE_KEYS
     assert "fingerprint" not in METRIC_ATTRIBUTE_KEYS

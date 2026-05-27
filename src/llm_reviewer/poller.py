@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import tomllib
 
+from llm_reviewer.env_config import apply_runtime_env, env_config_path, read_config_file
 from llm_reviewer.telemetry import (
     ReviewTelemetry,
     TelemetryConfig,
@@ -26,7 +27,7 @@ from llm_reviewer.telemetry import (
 )
 
 ROOT = Path(os.environ.get("LLM_CODE_REVIEW_ROOT", Path.home() / ".local" / "share" / "llm-reviewer"))
-CONFIG = ROOT / "config" / "poller.toml"
+CONFIG = env_config_path(ROOT)
 DB = ROOT / "var" / "state" / "reviewer.sqlite"
 WORK = ROOT / "var" / "work"
 REPORTS = ROOT / "var" / "reports"
@@ -44,20 +45,6 @@ def log(event: str, **fields) -> None:
     print(json.dumps({"ts": now(), "event": event, **fields}, sort_keys=True), flush=True)
 
 
-def load_env() -> None:
-    for path in (ROOT / "config" / "config.env", ROOT / "config" / "secrets.env"):
-        if not path.exists():
-            continue
-        for raw in path.read_text().splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            if line.startswith("export "):
-                line = line[7:].strip()
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip("'\""))
-
-
 def gitlab_token() -> str:
     for key in ("GITLAB_TOKEN", "GITLAB_PERSONAL_ACCESS_TOKEN", "GLAB_TOKEN"):
         if os.environ.get(key):
@@ -68,7 +55,8 @@ def gitlab_token() -> str:
 def read_config() -> dict:
     if not CONFIG.exists():
         raise SystemExit(f"missing config: {CONFIG}")
-    cfg = tomllib.loads(CONFIG.read_text())
+    cfg = read_config_file(CONFIG)
+    apply_runtime_env(ROOT, cfg)
     cfg.setdefault("gitlab_url", "https://gitlab.com")
     cfg.setdefault("dry_run", True)
     cfg.setdefault("post_summary", False)
@@ -832,7 +820,6 @@ def fork_worker(job: Path) -> int:
 
 
 def poll() -> int:
-    load_env()
     init_db()
     cfg = read_config()
     token = gitlab_token()
@@ -1012,7 +999,6 @@ def post_or_plan_findings(
 
 
 def worker(job: Path) -> int:
-    load_env()
     init_db()
     cfg = read_config()
     token = gitlab_token()
@@ -1128,7 +1114,6 @@ def worker(job: Path) -> int:
 
 
 def sync_outcomes(limit: int = 200) -> int:
-    load_env()
     init_db()
     cfg = read_config()
     token = gitlab_token()

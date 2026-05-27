@@ -7,8 +7,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 import tomllib
 
+from llm_reviewer.env_config import apply_runtime_env, env_config_path, read_config_file
 
 ROOT = Path(os.environ.get("LLM_CODE_REVIEW_ROOT", Path.home() / ".local" / "share" / "llm-reviewer"))
+ENV_CONFIG = env_config_path(ROOT)
+
+
+def load_runtime_config() -> None:
+    if ENV_CONFIG.is_file():
+        try:
+            apply_runtime_env(ROOT, read_config_file(ENV_CONFIG))
+        except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError):
+            pass
+
+
+load_runtime_config()
+
 PROMPT_FILE = Path(os.environ.get("LLM_CODE_REVIEW_PROMPT", ROOT / "prompts" / "00-meta.md"))
 LOG_DIR = ROOT / "var" / "log" / "codex"
 CODEX_PROFILE = os.environ.get("CODEX_REVIEW_PROFILE", "llm-reviewer")
@@ -28,7 +42,7 @@ def configured_max_findings() -> int:
                 break
             if parsed > 0:
                 return parsed
-    config = ROOT / "config" / "poller.toml"
+    config = ENV_CONFIG
     if config.is_file():
         try:
             value = tomllib.loads(config.read_text(encoding="utf-8")).get("max_findings_per_review", 5)

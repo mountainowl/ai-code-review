@@ -16,5 +16,4 @@ var/state/poller.lock
 var/state/*.sqlite
 var/state/*.sqlite-*
 
-# Real secrets are kept locally for safekeeping, not for source control.
-config/secrets.env
+config/env.toml

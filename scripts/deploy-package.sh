@@ -24,7 +24,7 @@ done
     --exclude=.git \
     --exclude=.pytest_cache \
     --exclude=__pycache__ \
-    --exclude=config/secrets.env \
+    --exclude=config/env.toml \
     --exclude=var/work \
     --exclude=var/log \
     --exclude=var/reports \

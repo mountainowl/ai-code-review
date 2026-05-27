@@ -3,11 +3,10 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT="${LLM_CODE_REVIEW_ROOT:-$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)}"
 export LLM_CODE_REVIEW_ROOT="$ROOT"
-for env_file in "$ROOT/config/config.env" "$ROOT/config/secrets.env"; do
-    if [ -r "$env_file" ]; then
-        set -a
-        . "$env_file"
-        set +a
-    fi
-done
+if [ -r "$ROOT/config/env.toml" ]; then
+    eval "$(PYTHONPATH="$ROOT/src" python3 -m llm_reviewer.env_config "$ROOT")"
+fi
+if [ -n "${GITLAB_TOKEN:-}" ] && [ -z "${GITLAB_PERSONAL_ACCESS_TOKEN:-}" ]; then
+    export GITLAB_PERSONAL_ACCESS_TOKEN="$GITLAB_TOKEN"
+fi
 exec "$@"

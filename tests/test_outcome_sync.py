@@ -67,16 +67,15 @@ def test_outcome_sync_flag_suppresses_outcome_metric_emission() -> None:
             fake = FakeTelemetry()
             cfg = {"telemetry_config": fake.config, "gitlab_url": "https://gitlab.com"}
 
-            with patch("llm_reviewer.poller.load_env"):
-                with patch("llm_reviewer.poller.read_config", return_value=cfg):
-                    with patch("llm_reviewer.poller.gitlab_token", return_value="token"):
-                        with patch("llm_reviewer.poller.ReviewTelemetry.from_config", return_value=fake):
-                            with patch("llm_reviewer.poller.get_mr", return_value={"state": "merged"}):
-                                with patch(
-                                    "llm_reviewer.poller.get_mr_discussion",
-                                    return_value={"id": "disc", "resolved": True, "notes": []},
-                                ):
-                                    assert poller.sync_outcomes(limit=1) == 1
+            with patch("llm_reviewer.poller.read_config", return_value=cfg):
+                with patch("llm_reviewer.poller.gitlab_token", return_value="token"):
+                    with patch("llm_reviewer.poller.ReviewTelemetry.from_config", return_value=fake):
+                        with patch("llm_reviewer.poller.get_mr", return_value={"state": "merged"}):
+                            with patch(
+                                "llm_reviewer.poller.get_mr_discussion",
+                                return_value={"id": "disc", "resolved": True, "notes": []},
+                            ):
+                                assert poller.sync_outcomes(limit=1) == 1
 
             assert fake.finding_metrics == 0
     finally:

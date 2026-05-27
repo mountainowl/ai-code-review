@@ -1,175 +1,174 @@
-# llm-reviewer
+# LLM Reviewer
 
-A small service that watches GitLab merge requests, runs an LLM code review
-against them, and posts the findings back as inline review threads.
+[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-3776ab?logo=python&logoColor=white)](pyproject.toml)
+[![Managed with uv](https://img.shields.io/badge/managed%20with-uv-2f3542)](pyproject.toml)
+[![GitLab first](https://img.shields.io/badge/GitLab-first-fc6d26?logo=gitlab&logoColor=white)](#gitlab-setup)
+[![OpenTelemetry](https://img.shields.io/badge/metrics-OpenTelemetry-4f62ad)](#telemetry-and-roi)
 
-## Example
+Evidence-backed LLM code review for GitLab merge requests.
 
-A real finding posted by the reviewer on a GitLab MR:
+![LLM Reviewer hero](docs/images/llm-reviewer-hero.png)
 
-![Example LLM-Reviewer inline finding on a GitLab merge request](docs/images/gitlab-mr-review-example.png)
+LLM Reviewer watches merge requests, runs a structured Codex or Claude review,
+and posts only actionable findings as inline GitLab discussions. It is built for
+teams that want early review signal without turning every MR into a chatbot
+thread.
 
-## How it works
+## Why Teams Use It
 
-1. A poller (`mr-review-poller`) wakes up on an interval, lists open MRs for
-   each configured GitLab project, and decides which ones are ready to review.
-2. For each eligible MR it forks a worker, which runs the Codex or Claude
-   review skill against the diff.
-3. The worker returns a list of findings. The poller maps each finding to a
-   changed line and posts it as an inline GitLab discussion.
-4. A SQLite file (`reviewer.sqlite`) records which MRs and findings have
-   already been posted, so the same comment is never posted twice.
+- **Inline comments, not summaries.** Findings are mapped back to changed lines.
+- **Evidence-first reviews.** The prompt requires impact, evidence, fix, and
+  confidence before a finding is allowed through.
+- **Human-friendly tone.** Short, direct comments. No praise, filler, broad
+  audits, or style nits.
+- **Stateful and idempotent.** SQLite records reviewed SHAs and posted
+  fingerprints so the bot does not spam the same MR.
+- **Ops-ready metrics.** OpenTelemetry reports reviews, findings, failures,
+  tokens, estimated cost, and resolution outcomes.
+- **Plain deployment.** A small Python package plus shell wrappers. No Docker
+  requirement.
 
-That's the whole loop. Everything else — telemetry, deploy scripts, config
-files — exists to make that loop runnable on a server.
+## What It Does
 
-## Quick start (local)
+```mermaid
+flowchart LR
+    A["Poll GitLab projects"] --> B["Find eligible MRs"]
+    B --> C["Fork review worker"]
+    C --> D["Run Codex or Claude skill"]
+    D --> E["Parse structured findings"]
+    E --> F["Post inline GitLab discussions"]
+    F --> G["Persist state and telemetry"]
+```
+
+The poller does not try to be a code-review brain. It orchestrates GitLab,
+state, prompt rendering, posting, and metrics. The actual review runs through
+the configured CLI skill.
+
+## Review Format
+
+The bot comments in a predictable shape:
+
+```text
+Issue: HS256 JWT fallback is skipped when Cognito URL construction fails.
+Impact: Valid local/shared-secret JWT requests return 500 instead of authenticating.
+Evidence: The changed interceptor rethrows InvalidAwsUrlException before fallback runs.
+Fix: Treat Cognito validation construction failures as failed Cognito auth when fallback is allowed.
+Confidence: 0.94
+```
+
+A real inline finding:
+
+![Example LLM Reviewer inline finding on a GitLab merge request](docs/images/gitlab-mr-review-example.png)
+
+## Prerequisites
+
+- Python 3.14 or newer.
+- `uv`.
+- Git CLI.
+- GitLab token with `api` scope.
+- Codex CLI or Claude CLI configured on the review host.
+
+## Quick Start
 
 ```sh
+git clone https://github.com/mountainowl/ai-code-review.git
+cd ai-code-review
 uv sync --dev
 uv run pytest
 ```
 
-To run a one-off review against the current working directory using Codex:
+Create local config:
 
 ```sh
-uv run code-review-codex
+cp config/env.example.toml config/env.toml
 ```
 
-To run the poller against your configured projects (respects `dry_run`):
+Add your GitLab and model credentials to the `[secrets]` table in
+`config/env.toml`:
+
+```toml
+[secrets]
+gitlab_token = "..."
+openai_api_key = "..."
+```
+
+Run a one-off Codex review from the current checkout:
+
+```sh
+uv run code-review-codex "Review the current changes."
+```
+
+Run the GitLab poller:
 
 ```sh
 uv run mr-review-poller
 ```
 
+## GitLab Setup
+
+1. Create a bot user such as `llm-reviewer`.
+2. Add it to the target GitLab projects with permission to read MRs and create
+   discussions.
+3. Create a token with `api` scope.
+4. Put the token in ignored `config/env.toml`.
+5. Add projects to ignored `config/env.toml`.
+
+Keep `dry_run = true` until the first review output looks right.
+
 ## Configuration
 
-Configuration lives in three files under `config/`. Two are checked in; one
-holds secrets and is not.
+Public defaults live in `config/env.example.toml`. Copy it to ignored
+`config/env.toml` before running. Runtime config and secrets live in that one
+TOML file.
 
-### `config/secrets.env` — tokens (not checked in)
-
-Copy `config/secrets.env.example` to `config/secrets.env` and fill in real
-values. Never commit this file.
-
-| Variable         | Purpose                                           |
-| ---------------- | ------------------------------------------------- |
-| `GITLAB_TOKEN`   | Personal access token used to read MRs and post review threads. Needs `api` scope. |
-| `OPENAI_API_KEY` | API key for the Codex review backend.             |
-
-### `config/config.env` — runtime environment
-
-Non-secret shell variables loaded by the `bin/` wrappers before each run.
-
-| Variable                    | Default                                | Purpose |
-| --------------------------- | -------------------------------------- | ------- |
-| `LLM_CODE_REVIEW_ROOT`      | `$HOME/.local/share/llm-reviewer`      | Install root. The wrappers infer this from their own location if unset. |
-| `LLM_CODE_REVIEW_BASE_DIR`  | `$LLM_CODE_REVIEW_ROOT/var`            | Where SQLite state, worktrees, and logs go. |
-| `LLM_CODE_REVIEW_PROMPT`    | `$LLM_CODE_REVIEW_ROOT/prompts/00-meta.md` | Meta prompt rendered before each review. |
-| `REVIEW_MODEL`              | `gpt-5.5`                              | Model name passed to the review backend. |
-| `REVIEW_REASONING_EFFORT`   | `medium`                               | Effort hint (`low`, `medium`, `high`). |
-| `REVIEW_DRY_RUN`            | `true`                                 | When `true`, the worker prints findings but the poller does not post. |
-| `POLL_INTERVAL_SECONDS`     | `900`                                  | Seconds between poll cycles when run from a long-lived wrapper. |
-
-### `config/poller.toml` — what to review and how much
-
-This is the file you'll edit most often. It controls which projects are
-reviewed, how many MRs are processed per cycle, and where telemetry goes.
-
-```toml
-gitlab_url             = "https://gitlab.com"
-dry_run                = false   # if true, the poller logs would-post comments instead of posting
-post_summary           = false   # post an overall summary comment in addition to inline threads
-max_reviews_per_run    = 8       # cap MRs reviewed per poll cycle
-max_findings_per_review = 8      # cap findings per MR (defaults to 5 if omitted)
-review_timeout_seconds = 1800    # kill a worker that exceeds this
-
-[[projects]]
-path    = "group/repo"
-enabled = true
-```
-
-The `max_findings_per_review` value is substituted into `prompts/00-meta.md`
-(`{{MAX_FINDINGS_PER_REVIEW}}`) before each review, and is also enforced as a
-hard cap in the posting path.
-
-### `config/poller.toml` — telemetry
-
-Telemetry is OpenTelemetry-only. The app emits metrics, spans, and finding
-events; the OTel backend or Collector does the rollups. SQLite is **not** an
-analytics store — it only holds posted-finding bookkeeping for idempotency.
-
-```toml
-[telemetry]
-enabled                = true
-service_name           = "llm-reviewer"
-environment            = "prod"
-otlp_endpoint          = "http://127.0.0.1:4317"
-otlp_protocol          = "grpc"
-export_interval_seconds = 30
-
-[telemetry.pricing.default]
-input_per_1m         = 0.0
-output_per_1m        = 0.0
-cached_input_per_1m  = 0.0
-```
-
-Each run emits, among other things:
-
-- eligible vs. reviewed MR counts (and skip reasons)
-- review duration and queue latency
-- findings planned, posted, skipped, and pending external IDs
-- token usage and estimated cost (using the pricing table above)
-- failure counts per component (Codex, GitLab, MCP, parser, posting)
-
-Higher-level metrics — useful-finding rate, cost per accepted finding,
-resolution rate, monthly projected cost, MR cycle-time impact — are intentionally
-**not** computed in Python. Derive them in your dashboard.
-
-Attributes on metrics are kept low-cardinality on purpose:
-
-```
-repo, model, prompt_version, review_mode, status, dry_run,
-finding_type, severity, category, skip_reason, error_type,
-component, operation, outcome, reviewer
-```
-
-High-cardinality fields (MR IID, SHA, file path, line number, fingerprint,
-discussion ID, note ID) live only in SQLite or span events, never as metric
-labels.
-
-## Outcome sync
-
-After findings have been live for a while, you can grade them against what
-actually happened in GitLab:
-
-```sh
-bin/mr-review-poller --sync-outcomes
-```
-
-That reads posted finding discussion IDs from `reviewer.sqlite`, checks each
-discussion's state in GitLab, and records outcomes: resolved, unresolved-after-merge,
-deleted, developer-replied, disputed, false-positive, duplicate.
-
-Other CLI flags:
-
-- `--init-db` — create `reviewer.sqlite` if missing, then exit.
-- `--sync-limit N` — cap how many discussions `--sync-outcomes` checks per run (default 200).
-- `--worker PATH` — run as a single-MR worker against a prepared worktree (used internally by the poller).
+| Variable name | Default value | Description |
+| --- | --- | --- |
+| `secrets.gitlab_token` | unset | Secret GitLab token used to read MRs and post review threads. Needs `api` scope. Exported as `GITLAB_TOKEN`. |
+| `secrets.openai_api_key` | unset | Secret OpenAI key used by the Codex review backend. Exported as `OPENAI_API_KEY`. |
+| `secrets.anthropic_api_key` | unset | Secret Anthropic key used when the Claude backend needs one. Exported as `ANTHROPIC_API_KEY`. |
+| `secrets.qwen_api_key` | unset | Optional Qwen provider key. Exported as `QWEN_API_KEY`. |
+| `gitlab_url` | `https://gitlab.com` | GitLab web/API host used by the poller. |
+| `dry_run` | `false` | When `true`, the poller records planned findings instead of posting GitLab threads. |
+| `post_summary` | `false` | Reserved flag for posting an MR summary comment in addition to inline threads. |
+| `max_reviews_per_run` | `8` | Maximum MRs queued by one poll cycle. |
+| `max_findings_per_review` | `8` | Maximum findings accepted from one MR review. Also renders `{{MAX_FINDINGS_PER_REVIEW}}` in the meta prompt. |
+| `review_timeout_seconds` | `1800` | Worker timeout for one MR review. |
+| `runtime.base_dir` | `var` | Runtime state directory under the install root. |
+| `runtime.prompt` | `prompts/00-meta.md` | Meta prompt rendered before each review. |
+| `runtime.review_model` | `gpt-5.5` | Default model passed to review CLI wrappers. |
+| `runtime.review_reasoning_effort` | `medium` | Default reasoning effort passed to Codex/Claude wrappers. |
+| `runtime.review_dry_run` | `true` | Runtime wrapper default for dry-run style manual review commands. |
+| `runtime.poll_interval_seconds` | `900` | Suggested interval for long-running poll wrappers. |
+| `runtime.codex_review_profile` | `llm-reviewer` | Codex profile used by the Codex runner. |
+| `runtime.codex_sandbox` | `read-only` | Codex sandbox mode used by code-review skill scripts. |
+| `runtime.gitlab_api_url` | `https://gitlab.com/api/v4` | GitLab MCP API endpoint. |
+| `runtime.gitlab_denied_tools_regex` | `^(delete_.*\|merge_merge_request\|push_files)$` | GitLab MCP tools blocked for reviewer safety. |
+| `telemetry.enabled` | `false` | Enables OpenTelemetry metrics and spans. |
+| `telemetry.service_name` | `llm-reviewer` | OTel service name. |
+| `telemetry.environment` | `prod` | OTel deployment environment attribute. |
+| `telemetry.otlp_endpoint` | `http://127.0.0.1:4317` | OTLP endpoint for metrics and traces. |
+| `telemetry.otlp_protocol` | `grpc` | OTLP protocol. Only `grpc` is supported. |
+| `telemetry.export_interval_seconds` | `30` | OTel metric export interval. |
+| `telemetry.emit_finding_events` | `true` | Emits finding lifecycle metrics. |
+| `telemetry.emit_outcome_sync` | `true` | Emits outcome-sync metrics. |
+| `telemetry.pricing.default.input_per_1m` | `0.0` | Input-token price used for estimated cost. |
+| `telemetry.pricing.default.output_per_1m` | `0.0` | Output-token price used for estimated cost. |
+| `telemetry.pricing.default.cached_input_per_1m` | `0.0` | Cached-input-token price used for estimated cost. |
+| `projects[].path` | sample repos in `config/env.example.toml` | GitLab project path to poll, for example `group/repo`. |
+| `projects[].enabled` | `true` | Enables or disables polling for that project. |
 
 ## Deploy
 
-From this checkout, push the package to a host:
+Push the package to a host:
 
 ```sh
 ./scripts/deploy-package.sh user@host
 ```
 
-That streams the project to the host, installs it under
-`$HOME/.local/share/llm-reviewer`, runs `uv sync --locked --no-dev`, and
-initializes the SQLite database.
+That installs under `$HOME/.local/share/llm-reviewer`, runs
+`uv sync --locked --no-dev`, and initializes SQLite state.
 
-Other deploy options:
+Common options:
 
 ```sh
 # install to a custom root
@@ -178,21 +177,59 @@ Other deploy options:
 # elevate when the root needs root-owned writes
 ./scripts/deploy-package.sh user@host --sudo --root /opt/llm-reviewer
 
-# also drop Codex and Claude config templates into the target user's home
+# also install Codex and Claude config templates
 ./scripts/deploy-package.sh user@host --install-agent-config
 ```
 
-For a host-local install after copying the directory yourself:
+For a host-local install after copying the checkout yourself:
 
 ```sh
 ./scripts/install-package.sh
 ```
 
-## On the installed host
+The wrappers in `bin/` infer the install root from their own location and load
+`config/env.toml`. No activation step is needed.
 
-The wrappers in `bin/` infer the install root from their own location, source
-`config/*.env`, and execute the Python package through `uv run --project`. So
-on the host you can call `bin/mr-review-poller` directly — no extra activation
-step.
+## Telemetry And ROI
 
-**Do not print or commit real values from `config/secrets.env`.**
+LLM Reviewer emits OpenTelemetry metrics and spans so rollups stay outside the
+poller. Useful dashboard slices:
+
+- MRs reviewed, skipped, failed, and posted.
+- Findings planned, posted, skipped, resolved, disputed, or deleted.
+- Review latency, queue latency, and worker runtime.
+- Input, output, cached, and total tokens.
+- Estimated model cost per review, repo, finding, and resolved finding.
+- Failure counts by component: GitLab, Codex, Claude, MCP, parser, posting.
+
+Outcome sync checks posted GitLab discussions later:
+
+```sh
+bin/mr-review-poller --sync-outcomes
+```
+
+That records whether each finding was resolved, left unresolved after merge,
+deleted, replied to, marked disputed, marked false-positive, or marked duplicate.
+
+## Bot Avatar
+
+Use `assets/llm-reviewer.png` as the GitLab or GitHub bot avatar.
+
+![LLM Reviewer avatar preview](docs/images/llm-reviewer-avatar-preview.png)
+
+## Project Status
+
+This project is GitLab-first and intentionally small. The current production
+path is polling plus inline discussions. Webhook intake, GitHub posting, and
+package-data-only pip deployment are not the primary path yet.
+
+No license file is present in this checkout. Add one before advertising the
+repository as open source.
+
+## Safety
+
+Do not print or commit real values from `config/env.toml`.
+
+Ignored local files:
+
+- `config/env.toml`

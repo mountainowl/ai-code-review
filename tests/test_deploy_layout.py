@@ -24,9 +24,7 @@ def test_deployable_tree_contains_all_runtime_assets() -> None:
         "bin/mr-review-poller",
         "bin/code-review-codex",
         "bin/env",
-        "config/poller.toml",
-        "config/config.env",
-        "config/secrets.env.example",
+        "config/env.example.toml",
         "deploy/templates/codex-config.toml",
         "deploy/templates/claude-settings.json",
         "prompts/00-meta.md",
@@ -43,7 +41,15 @@ def test_deployable_tree_contains_all_runtime_assets() -> None:
 def test_deploy_archive_excludes_runtime_noise() -> None:
     deploy = (ROOT / "scripts" / "deploy-package.sh").read_text()
 
-    for pattern in [".venv", ".git", "config/secrets.env", "var/work", "var/log", "var/reports", "__pycache__"]:
+    for pattern in [
+        ".venv",
+        ".git",
+        "config/env.toml",
+        "var/work",
+        "var/log",
+        "var/reports",
+        "__pycache__",
+    ]:
         assert f"--exclude={pattern}" in deploy
 
 
