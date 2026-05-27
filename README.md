@@ -1,148 +1,192 @@
 # llm-reviewer
 
-GitLab merge-request reviewer service.
+A small service that watches GitLab merge requests, runs an LLM code review
+against them, and posts the findings back as inline review threads.
 
-The poller finds configured GitLab MRs, forks a review worker, runs the Codex
-review skill, and posts inline GitLab review threads for findings that map to
-changed lines.
+## How it works
 
-## Layout
+1. A poller (`mr-review-poller`) wakes up on an interval, lists open MRs for
+   each configured GitLab project, and decides which ones are ready to review.
+2. For each eligible MR it forks a worker, which runs the Codex or Claude
+   review skill against the diff.
+3. The worker returns a list of findings. The poller maps each finding to a
+   changed line and posts it as an inline GitLab discussion.
+4. A SQLite file (`reviewer.sqlite`) records which MRs and findings have
+   already been posted, so the same comment is never posted twice.
 
-- `src/llm_reviewer/` - Python package and `uv` console entrypoints.
-- `bin/` - deployment wrappers and shell helpers.
-- `config/` - live config copied from the VM, including local secrets.
-- `prompts/` - review meta prompt.
-- `skills/` - Codex/Claude review skills.
-- `plugins/` - bundled plugin assets needed by the VM install.
-- `deploy/` - optional Codex and Claude config templates.
-- `var/state/` - copied SQLite state only; runtime worktrees/logs are ignored.
+That's the whole loop. Everything else — telemetry, deploy scripts, config
+files — exists to make that loop runnable on a server.
 
-## Local Checks
+## Quick start (local)
 
 ```sh
 uv sync --dev
 uv run pytest
 ```
 
-## Review Limits
+To run a one-off review against the current working directory using Codex:
 
-`config/poller.toml` controls queue and finding limits:
+```sh
+uv run code-review-codex
+```
 
-- `max_reviews_per_run`: maximum MRs queued per poll run.
-- `max_findings_per_review`: maximum findings returned and posted/planned for a
-  single MR review. Defaults to `5` when omitted.
+To run the poller against your configured projects (respects `dry_run`):
 
-The poller renders `prompts/00-meta.md` before each review and substitutes
-`{{MAX_FINDINGS_PER_REVIEW}}` with `max_findings_per_review`. The Python
-posting path also hard-caps parsed LLM findings to the same value.
+```sh
+uv run mr-review-poller
+```
 
-## Telemetry
+## Configuration
 
-Telemetry uses OpenTelemetry. The app emits metrics, spans, and finding events;
-the OTel backend or Collector owns rollups. `reviewer.sqlite` is only used for
-review idempotency and GitLab discussion correlation.
+Configuration lives in three files under `config/`. Two are checked in; one
+holds secrets and is not.
 
-Enable it in `config/poller.toml`:
+### `config/secrets.env` — tokens (not checked in)
+
+Copy `config/secrets.env.example` to `config/secrets.env` and fill in real
+values. Never commit this file.
+
+| Variable         | Purpose                                           |
+| ---------------- | ------------------------------------------------- |
+| `GITLAB_TOKEN`   | Personal access token used to read MRs and post review threads. Needs `api` scope. |
+| `OPENAI_API_KEY` | API key for the Codex review backend.             |
+
+### `config/config.env` — runtime environment
+
+Non-secret shell variables loaded by the `bin/` wrappers before each run.
+
+| Variable                    | Default                                | Purpose |
+| --------------------------- | -------------------------------------- | ------- |
+| `LLM_CODE_REVIEW_ROOT`      | `$HOME/.local/share/llm-reviewer`      | Install root. The wrappers infer this from their own location if unset. |
+| `LLM_CODE_REVIEW_BASE_DIR`  | `$LLM_CODE_REVIEW_ROOT/var`            | Where SQLite state, worktrees, and logs go. |
+| `LLM_CODE_REVIEW_PROMPT`    | `$LLM_CODE_REVIEW_ROOT/prompts/00-meta.md` | Meta prompt rendered before each review. |
+| `REVIEW_MODEL`              | `gpt-5.5`                              | Model name passed to the review backend. |
+| `REVIEW_REASONING_EFFORT`   | `medium`                               | Effort hint (`low`, `medium`, `high`). |
+| `REVIEW_DRY_RUN`            | `true`                                 | When `true`, the worker prints findings but the poller does not post. |
+| `POLL_INTERVAL_SECONDS`     | `900`                                  | Seconds between poll cycles when run from a long-lived wrapper. |
+
+### `config/poller.toml` — what to review and how much
+
+This is the file you'll edit most often. It controls which projects are
+reviewed, how many MRs are processed per cycle, and where telemetry goes.
+
+```toml
+gitlab_url             = "https://gitlab.com"
+dry_run                = false   # if true, the poller logs would-post comments instead of posting
+post_summary           = false   # post an overall summary comment in addition to inline threads
+max_reviews_per_run    = 8       # cap MRs reviewed per poll cycle
+max_findings_per_review = 8      # cap findings per MR (defaults to 5 if omitted)
+review_timeout_seconds = 1800    # kill a worker that exceeds this
+
+[[projects]]
+path    = "group/repo"
+enabled = true
+```
+
+The `max_findings_per_review` value is substituted into `prompts/00-meta.md`
+(`{{MAX_FINDINGS_PER_REVIEW}}`) before each review, and is also enforced as a
+hard cap in the posting path.
+
+### `config/poller.toml` — telemetry
+
+Telemetry is OpenTelemetry-only. The app emits metrics, spans, and finding
+events; the OTel backend or Collector does the rollups. SQLite is **not** an
+analytics store — it only holds posted-finding bookkeeping for idempotency.
 
 ```toml
 [telemetry]
-enabled = true
-service_name = "llm-reviewer"
-environment = "prod"
-otlp_endpoint = "http://127.0.0.1:4317"
-otlp_protocol = "grpc"
+enabled                = true
+service_name           = "llm-reviewer"
+environment            = "prod"
+otlp_endpoint          = "http://127.0.0.1:4317"
+otlp_protocol          = "grpc"
 export_interval_seconds = 30
 
 [telemetry.pricing.default]
-input_per_1m = 0.0
-output_per_1m = 0.0
-cached_input_per_1m = 0.0
+input_per_1m         = 0.0
+output_per_1m        = 0.0
+cached_input_per_1m  = 0.0
 ```
 
-Runtime metrics are collected during each poller/worker run:
+Each run emits, among other things:
 
-- eligible and reviewed MRs
-- skipped MRs and skip reasons
+- eligible vs. reviewed MR counts (and skip reasons)
 - review duration and queue latency
-- findings planned, posted, skipped, and pending external GitLab IDs
-- no-finding reviews
-- token usage and estimated cost
-- Codex, GitLab, MCP, parser, and posting failures
+- findings planned, posted, skipped, and pending external IDs
+- token usage and estimated cost (using the pricing table above)
+- failure counts per component (Codex, GitLab, MCP, parser, posting)
 
-Outcome metrics are collected after the fact with:
+Higher-level metrics — useful-finding rate, cost per accepted finding,
+resolution rate, monthly projected cost, MR cycle-time impact — are intentionally
+**not** computed in Python. Derive them in your dashboard.
 
-```sh
-bin/mr-review-poller --sync-outcomes
+Attributes on metrics are kept low-cardinality on purpose:
+
 ```
-
-That sync reads posted finding discussion IDs from `reviewer.sqlite`, checks
-GitLab discussion state, and records resolved, unresolved-after-merge, deleted,
-developer-replied, disputed, false-positive, and duplicate outcomes.
-
-Derived dashboard metrics should be computed outside Python:
-
-- cost per accepted actionable finding
-- resolution rate
-- useful finding rate
-- false-positive rate
-- cost per review
-- cost per posted finding
-- cost per blocking resolved finding
-- failure rate
-- monthly projected cost
-- MR cycle-time impact
-
-Metric attributes are intentionally low-cardinality:
-
-```text
 repo, model, prompt_version, review_mode, status, dry_run,
 finding_type, severity, category, skip_reason, error_type,
 component, operation, outcome, reviewer
 ```
 
-MR IID, SHA, file path, line number, fingerprint, discussion ID, and note ID are
-kept in SQLite or span events only. They are not metric labels.
+High-cardinality fields (MR IID, SHA, file path, line number, fingerprint,
+discussion ID, note ID) live only in SQLite or span events, never as metric
+labels.
 
-## Package Deploy
+## Outcome sync
 
-From this checkout:
+After findings have been live for a while, you can grade them against what
+actually happened in GitLab:
+
+```sh
+bin/mr-review-poller --sync-outcomes
+```
+
+That reads posted finding discussion IDs from `reviewer.sqlite`, checks each
+discussion's state in GitLab, and records outcomes: resolved, unresolved-after-merge,
+deleted, developer-replied, disputed, false-positive, duplicate.
+
+Other CLI flags:
+
+- `--init-db` — create `reviewer.sqlite` if missing, then exit.
+- `--sync-limit N` — cap how many discussions `--sync-outcomes` checks per run (default 200).
+- `--worker PATH` — run as a single-MR worker against a prepared worktree (used internally by the poller).
+
+## Deploy
+
+From this checkout, push the package to a host:
 
 ```sh
 ./scripts/deploy-package.sh user@host
 ```
 
-That streams this project to the host, installs it under
+That streams the project to the host, installs it under
 `$HOME/.local/share/llm-reviewer`, runs `uv sync --locked --no-dev`, and
-initializes the SQLite DB.
+initializes the SQLite database.
 
-Choose a different root when needed:
+Other deploy options:
 
 ```sh
+# install to a custom root
 ./scripts/deploy-package.sh user@host --root /opt/llm-reviewer
-```
 
-Use `--sudo` only when the chosen root needs elevated filesystem writes:
-
-```sh
+# elevate when the root needs root-owned writes
 ./scripts/deploy-package.sh user@host --sudo --root /opt/llm-reviewer
-```
 
-Install Codex and Claude config templates for the target user when the host
-should run reviews directly:
-
-```sh
+# also drop Codex and Claude config templates into the target user's home
 ./scripts/deploy-package.sh user@host --install-agent-config
 ```
 
-For a host-local install after copying the directory:
+For a host-local install after copying the directory yourself:
 
 ```sh
 ./scripts/install-package.sh
 ```
 
-## Installed Runtime
+## On the installed host
 
-The shell wrappers infer the install root from their own location, load
-`config/*.env`, and execute the Python package through `uv run --project`.
+The wrappers in `bin/` infer the install root from their own location, source
+`config/*.env`, and execute the Python package through `uv run --project`. So
+on the host you can call `bin/mr-review-poller` directly — no extra activation
+step.
 
-Do not print or commit real values from `config/secrets.env`.
+**Do not print or commit real values from `config/secrets.env`.**
