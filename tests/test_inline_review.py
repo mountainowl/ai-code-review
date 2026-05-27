@@ -8,6 +8,9 @@ from unittest.mock import patch
 from llm_reviewer import codex_runner, poller
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class InlineReviewTests(unittest.TestCase):
     def test_extract_json_findings_from_plain_array(self):
         raw = json.dumps(
@@ -38,7 +41,7 @@ class InlineReviewTests(unittest.TestCase):
     def test_codex_runner_does_not_forward_stdin_to_codex(self):
         completed = subprocess.CompletedProcess(["codex"], 0, "[]", "")
         with patch("llm_reviewer.codex_runner.subprocess.run", return_value=completed) as mocked:
-            with patch.object(codex_runner, "PROMPT_FILE", Path("/Users/ajay/github/llm-reviewer/prompts/00-meta.md")):
+            with patch.object(codex_runner, "PROMPT_FILE", ROOT / "prompts" / "00-meta.md"):
                 with tempfile.TemporaryDirectory() as tmp:
                     with patch.object(codex_runner, "LOG_DIR", Path(tmp)):
                         result = codex_runner.main()
