@@ -55,16 +55,10 @@ def gitlab_token() -> str:
 def read_config() -> dict:
     if not CONFIG.exists():
         raise SystemExit(f"missing config: {CONFIG}")
-    cfg = read_config_file(CONFIG)
+    cfg = normalize_config(read_config_file(CONFIG))
     apply_runtime_env(ROOT, cfg)
-    cfg.setdefault("gitlab_url", "https://gitlab.com")
-    cfg.setdefault("dry_run", True)
     cfg.setdefault("post_summary", False)
-    cfg.setdefault("max_reviews_per_run", 5)
-    cfg.setdefault("max_findings_per_review", 5)
-    cfg.setdefault("review_timeout_seconds", 1800)
     cfg.setdefault("reviewer_command", [str(DEFAULT_REVIEWER)])
-    cfg.setdefault("target_mr_iid", None)
     cfg["max_findings_per_review"] = positive_int(cfg["max_findings_per_review"], "max_findings_per_review")
     try:
         cfg["telemetry_config"] = telemetry_config_from_dict(cfg)
@@ -77,6 +71,35 @@ def read_config() -> dict:
         if item.get("enabled", True) and item.get("path")
     ]
     return cfg
+
+
+def normalize_config(cfg: dict) -> dict:
+    gitlab = section(cfg, "gitlab")
+    review = section(cfg, "review")
+    poller = section(cfg, "poller")
+    agent = section(cfg, "agent")
+
+    normalized = dict(cfg)
+    normalized["gitlab_url"] = gitlab.get("url", cfg.get("gitlab_url", "https://gitlab.com"))
+    normalized["dry_run"] = review.get("dry_run", cfg.get("dry_run", True))
+    normalized["max_reviews_per_run"] = review.get(
+        "max_merge_requests_per_poll",
+        cfg.get("max_reviews_per_run", 5),
+    )
+    normalized["max_findings_per_review"] = review.get(
+        "max_findings_per_merge_request",
+        cfg.get("max_findings_per_review", 5),
+    )
+    normalized["review_timeout_seconds"] = review.get("timeout_seconds", cfg.get("review_timeout_seconds", 1800))
+    normalized["target_mr_iid"] = poller.get("target_merge_request_iid", cfg.get("target_mr_iid", None))
+    normalized["reviewer_command"] = agent.get("reviewer_command", cfg.get("reviewer_command", [str(DEFAULT_REVIEWER)]))
+    normalized["model"] = agent.get("model", cfg.get("model"))
+    return normalized
+
+
+def section(cfg: dict, name: str) -> dict:
+    value = cfg.get(name) or {}
+    return value if isinstance(value, dict) else {}
 
 
 def positive_int(value: object, name: str) -> int:

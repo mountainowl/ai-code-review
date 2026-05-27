@@ -178,6 +178,23 @@ enabled = true
         self.assertIn("Maximum 8 findings total", rendered)
         self.assertNotIn("{{MAX_FINDINGS_PER_REVIEW}}", rendered)
 
+    def test_codex_runner_reads_new_max_findings_config_name(self):
+        original_config = codex_runner.ENV_CONFIG
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                codex_runner.ENV_CONFIG = Path(tmp) / "env.toml"
+                codex_runner.ENV_CONFIG.write_text(
+                    """
+[review]
+max_findings_per_merge_request = 9
+""",
+                    encoding="utf-8",
+                )
+
+                self.assertEqual(9, codex_runner.configured_max_findings())
+            finally:
+                codex_runner.ENV_CONFIG = original_config
+
     def test_extract_json_findings_from_fenced_block(self):
         raw = '```json\n[{"file":"src/A.java","line":12,"body":"Fix it"}]\n```'
 

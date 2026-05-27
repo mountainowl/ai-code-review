@@ -8,17 +8,22 @@ from llm_reviewer.env_config import read_config_file, runtime_env
 def test_runtime_env_exports_from_env_toml() -> None:
     root = Path("/opt/llm-reviewer")
     cfg = {
-        "runtime": {
-            "base_dir": "var",
-            "prompt": "prompts/00-meta.md",
-            "review_model": "gpt-test",
-            "review_reasoning_effort": "high",
-            "review_dry_run": False,
-            "poll_interval_seconds": 123,
-            "codex_review_profile": "reviewer",
+        "gitlab": {
+            "api_url": "https://gitlab.example/api/v4",
+            "bot_username": "review-bot",
+            "denied_tools_regex": "^(delete_.*)$",
+        },
+        "poller": {
+            "state_dir": "var",
+            "interval_seconds": 123,
+        },
+        "agent": {
+            "prompt_file": "prompts/00-meta.md",
+            "model": "gpt-test",
+            "reasoning_effort": "high",
+            "manual_review_dry_run": False,
+            "codex_profile": "reviewer",
             "codex_sandbox": "read-only",
-            "gitlab_api_url": "https://gitlab.example/api/v4",
-            "gitlab_denied_tools_regex": "^(delete_.*)$",
         },
         "secrets": {
             "gitlab_token": "gitlab-secret",
@@ -42,10 +47,42 @@ def test_runtime_env_exports_from_env_toml() -> None:
     assert env["CODEX_SANDBOX"] == "read-only"
     assert env["GITLAB_API_URL"] == "https://gitlab.example/api/v4"
     assert env["GITLAB_DENIED_TOOLS_REGEX"] == "^(delete_.*)$"
+    assert env["LLM_REVIEWER_GITLAB_USERNAME"] == "review-bot"
     assert env["GITLAB_TOKEN"] == "gitlab-secret"
     assert env["OPENAI_API_KEY"] == "openai-secret"
     assert env["ANTHROPIC_API_KEY"] == "anthropic-secret"
     assert env["QWEN_API_KEY"] == "qwen-secret"
+
+
+def test_runtime_env_still_accepts_legacy_runtime_section() -> None:
+    root = Path("/opt/llm-reviewer")
+    cfg = {
+        "runtime": {
+            "base_dir": "state",
+            "prompt": "custom/prompt.md",
+            "review_model": "legacy-model",
+            "review_reasoning_effort": "low",
+            "review_dry_run": False,
+            "poll_interval_seconds": 321,
+            "codex_review_profile": "legacy-profile",
+            "codex_sandbox": "workspace-write",
+            "gitlab_api_url": "https://gitlab.legacy/api/v4",
+            "gitlab_denied_tools_regex": "^legacy$",
+        }
+    }
+
+    env = runtime_env(root, cfg)
+
+    assert env["LLM_CODE_REVIEW_BASE_DIR"] == "/opt/llm-reviewer/state"
+    assert env["LLM_CODE_REVIEW_PROMPT"] == "/opt/llm-reviewer/custom/prompt.md"
+    assert env["REVIEW_MODEL"] == "legacy-model"
+    assert env["REVIEW_REASONING_EFFORT"] == "low"
+    assert env["REVIEW_DRY_RUN"] == "false"
+    assert env["POLL_INTERVAL_SECONDS"] == "321"
+    assert env["CODEX_REVIEW_PROFILE"] == "legacy-profile"
+    assert env["CODEX_SANDBOX"] == "workspace-write"
+    assert env["GITLAB_API_URL"] == "https://gitlab.legacy/api/v4"
+    assert env["GITLAB_DENIED_TOOLS_REGEX"] == "^legacy$"
 
 
 def test_empty_secrets_are_not_exported() -> None:

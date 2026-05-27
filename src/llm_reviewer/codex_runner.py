@@ -45,7 +45,9 @@ def configured_max_findings() -> int:
     config = ENV_CONFIG
     if config.is_file():
         try:
-            value = tomllib.loads(config.read_text(encoding="utf-8")).get("max_findings_per_review", 5)
+            cfg = tomllib.loads(config.read_text(encoding="utf-8"))
+            review = cfg.get("review") if isinstance(cfg.get("review"), dict) else {}
+            value = review.get("max_findings_per_merge_request", cfg.get("max_findings_per_review", 5))
             parsed = int(value)
             if parsed > 0:
                 return parsed
