@@ -36,32 +36,33 @@ as_root() {
 }
 
 tmp="$(mktemp -d)"
-preserved_secrets=""
-trap 'rm -rf "$tmp"; if [ -n "$preserved_secrets" ]; then rm -f "$preserved_secrets"; fi' EXIT
+preserved_env=""
+trap 'rm -rf "$tmp"; if [ -n "$preserved_env" ]; then rm -f "$preserved_env"; fi' EXIT
 
 (cd "$SOURCE" && tar \
     --exclude=.venv \
     --exclude=.git \
     --exclude=.pytest_cache \
     --exclude=__pycache__ \
-    --exclude=config/secrets.env \
+    --exclude=config/env.toml \
     --exclude=var/work \
     --exclude=var/log \
     --exclude=var/reports \
     --exclude=var/jobs \
     -cf - .) | tar -xf - -C "$tmp"
 
-if as_root test -f "$ROOT/config/secrets.env"; then
-    preserved_secrets="$(mktemp)"
-    as_root cp "$ROOT/config/secrets.env" "$preserved_secrets"
+if as_root test -f "$ROOT/config/env.toml"; then
+    preserved_env="$(mktemp)"
+    as_root cp "$ROOT/config/env.toml" "$preserved_env"
 fi
-
 as_root rm -rf "$ROOT"
 as_root mkdir -p "$ROOT"
 (cd "$tmp" && tar -cf - .) | as_root tar -xf - -C "$ROOT"
-if [ -n "$preserved_secrets" ] && [ -f "$preserved_secrets" ]; then
+if [ -n "$preserved_env" ] && [ -f "$preserved_env" ]; then
     as_root mkdir -p "$ROOT/config"
-    as_root cp "$preserved_secrets" "$ROOT/config/secrets.env"
+    as_root cp "$preserved_env" "$ROOT/config/env.toml"
+elif [ -f "$ROOT/config/env.example.toml" ]; then
+    as_root cp "$ROOT/config/env.example.toml" "$ROOT/config/env.toml"
 fi
 if [ "$USE_SUDO" -eq 1 ]; then
     as_root chown -R "$(id -un):$(id -gn)" "$ROOT"

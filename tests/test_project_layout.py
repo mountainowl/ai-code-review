@@ -19,9 +19,19 @@ def test_project_uses_uv_src_layout() -> None:
 
 
 def test_project_tree_keeps_config_but_not_runtime_checkouts() -> None:
-    assert (ROOT / "config" / "secrets.env.example").is_file()
-    assert (ROOT / "config" / "config.env").is_file()
-    assert (ROOT / "config" / "poller.toml").is_file()
+    readme = (ROOT / "README.md").read_text()
+
+    assert (ROOT / "config" / "env.example.toml").is_file()
+    assert (ROOT / "docs" / "images" / "llm-reviewer-hero.png").is_file()
+    assert (ROOT / "docs" / "images" / "llm-reviewer-avatar-preview.png").is_file()
+    assert (ROOT / "assets" / "llm-reviewer.png").is_file()
+    assert "docs/images/llm-reviewer-hero.png" in readme
+    assert "docs/images/llm-reviewer-avatar-preview.png" in readme
+    assert "assets/llm-reviewer.png" in readme
+    assert "config/env.toml" in (ROOT / ".gitignore").read_text()
+    assert not any(path.name.startswith("secrets.") for path in (ROOT / "config").iterdir())
+    assert not (ROOT / "config" / "config.env").exists()
+    assert not (ROOT / "config" / "poller.toml").exists()
     assert (ROOT / "prompts" / "00-meta.md").is_file()
     assert (ROOT / "skills" / "code-reviewer" / "SKILL.md").is_file()
     assert not (ROOT / "root" / "usr" / "local" / "llm-code-review").exists()

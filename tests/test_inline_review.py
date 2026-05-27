@@ -61,9 +61,9 @@ class InlineReviewTests(unittest.TestCase):
 
     def test_review_prompt_uses_structured_contract_not_raw_body(self):
         prompt = poller.review_prompt(
-            "longtaildev/dataGatherer",
+            "example/enabled-repo",
             {
-                "web_url": "https://gitlab.com/longtaildev/dataGatherer/-/merge_requests/269",
+                "web_url": "https://gitlab.com/example/enabled-repo/-/merge_requests/269",
                 "iid": 269,
                 "title": "Move auth",
                 "source_branch": "feature",
@@ -139,7 +139,7 @@ tokens used
 
     def test_review_prompt_pins_review_contract_vocabulary(self):
         prompt = poller.review_prompt(
-            "longtaildev/dataGatherer",
+            "example/enabled-repo",
             {"web_url": "url", "iid": 1, "title": "t", "source_branch": "s", "target_branch": "t", "sha": "abc"},
             {"max_findings_per_review": 5},
         )
@@ -152,13 +152,13 @@ tokens used
         original_config = poller.CONFIG
         with tempfile.TemporaryDirectory() as tmp:
             try:
-                poller.CONFIG = Path(tmp) / "poller.toml"
+                poller.CONFIG = Path(tmp) / "env.toml"
                 poller.CONFIG.write_text(
                     """
 gitlab_url = "https://gitlab.com"
 
 [[projects]]
-path = "longtaildev/dataGatherer"
+path = "example/enabled-repo"
 enabled = true
 """,
                     encoding="utf-8",
@@ -225,13 +225,13 @@ enabled = true
 
     def test_mcp_thread_args_url_encode_project_and_string_iid(self):
         args = poller.mcp_thread_args(
-            "longtaildev/dataGatherer",
+            "example/enabled-repo",
             269,
             "body",
             {"position_type": "text", "new_line": 12},
         )
 
-        self.assertEqual("longtaildev%2FdataGatherer", args["project_id"])
+        self.assertEqual("example%2Fenabled-repo", args["project_id"])
         self.assertEqual("269", args["merge_request_iid"])
         self.assertEqual("body", args["body"])
         self.assertEqual(12, args["position"]["new_line"])

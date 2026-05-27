@@ -13,7 +13,7 @@ USER_PROMPT="${*:-Review the current changes.}"
 
 exec "$ROOT/bin/env" claude \
     -p \
-    --effort medium \
+    --effort "${REVIEW_REASONING_EFFORT:-medium}" \
     --append-system-prompt-file "$PROMPT_FILE" \
     "/code-review
 

@@ -63,7 +63,7 @@ def test_read_config_disables_invalid_telemetry_without_failing_reviews() -> Non
     original_config = poller.CONFIG
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            poller.CONFIG = Path(tmp) / "poller.toml"
+            poller.CONFIG = Path(tmp) / "env.toml"
             poller.CONFIG.write_text(
                 """
 gitlab_url = "https://gitlab.com"
@@ -73,7 +73,7 @@ enabled = true
 otlp_protocol = "http/protobuf"
 
 [[projects]]
-path = "longtaildev/dataGatherer"
+path = "example/enabled-repo"
 enabled = true
 """,
                 encoding="utf-8",
@@ -90,14 +90,14 @@ def test_read_config_disables_malformed_telemetry_shape_without_failing_reviews(
     original_config = poller.CONFIG
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            poller.CONFIG = Path(tmp) / "poller.toml"
+            poller.CONFIG = Path(tmp) / "env.toml"
             poller.CONFIG.write_text(
                 """
 gitlab_url = "https://gitlab.com"
 telemetry = "bad"
 
 [[projects]]
-path = "longtaildev/dataGatherer"
+path = "example/enabled-repo"
 enabled = true
 """,
                 encoding="utf-8",

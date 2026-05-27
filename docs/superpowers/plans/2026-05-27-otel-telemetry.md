@@ -54,7 +54,7 @@
 ### Task 4: Config And Documentation
 
 **Files:**
-- Modify: `config/poller.toml`
+- Modify: `config/env.toml`
 - Modify: `README.md`
 - Test: existing deploy/config tests.
 
