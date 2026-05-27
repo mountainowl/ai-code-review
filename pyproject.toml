@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "GitLab merge-request code review poller backed by Codex and Claude CLI skills."
 readme = "README.md"
 requires-python = ">=3.14"
+license = "MIT"
 dependencies = [
     "opentelemetry-api>=1.42.1",
     "opentelemetry-exporter-otlp-proto-grpc>=1.42.1",

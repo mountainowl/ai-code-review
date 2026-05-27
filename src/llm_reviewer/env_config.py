@@ -34,28 +34,37 @@ def read_config_file(path: Path) -> dict[str, Any]:
 
 
 def runtime_env(root: Path, cfg: dict[str, Any]) -> dict[str, str]:
-    runtime = cfg.get("runtime") or {}
-    if not isinstance(runtime, dict):
-        runtime = {}
+    runtime = _section(cfg, "runtime")
+    poller = _section(cfg, "poller")
+    agent = _section(cfg, "agent")
+    gitlab = _section(cfg, "gitlab")
 
-    base_dir = _path_value(root, runtime.get("base_dir", "var"))
-    prompt = _path_value(root, runtime.get("prompt", "prompts/00-meta.md"))
+    gitlab_url = str(gitlab.get("url", cfg.get("gitlab_url", "https://gitlab.com"))).rstrip("/")
+    base_dir = _path_value(root, poller.get("state_dir", runtime.get("base_dir", "var")))
+    prompt = _path_value(root, agent.get("prompt_file", runtime.get("prompt", "prompts/00-meta.md")))
     exports = {
         "LLM_CODE_REVIEW_ROOT": str(root),
         "LLM_CODE_REVIEW_HOME": str(root),
         "LLM_CODE_REVIEW_BASE_DIR": str(base_dir),
         "LLM_CODE_REVIEW_PROMPT": str(prompt),
-        "REVIEW_MODEL": str(runtime.get("review_model", "gpt-5.5")),
-        "REVIEW_REASONING_EFFORT": str(runtime.get("review_reasoning_effort", "medium")),
-        "REVIEW_DRY_RUN": _bool_text(runtime.get("review_dry_run", True)),
-        "POLL_INTERVAL_SECONDS": str(int(runtime.get("poll_interval_seconds", 900))),
-        "CODEX_REVIEW_PROFILE": str(runtime.get("codex_review_profile", "llm-reviewer")),
-        "CODEX_SANDBOX": str(runtime.get("codex_sandbox", "read-only")),
-        "GITLAB_API_URL": str(runtime.get("gitlab_api_url", "https://gitlab.com/api/v4")),
+        "REVIEW_MODEL": str(agent.get("model", runtime.get("review_model", "gpt-5.5"))),
+        "REVIEW_REASONING_EFFORT": str(
+            agent.get("reasoning_effort", runtime.get("review_reasoning_effort", "medium"))
+        ),
+        "REVIEW_DRY_RUN": _bool_text(agent.get("manual_review_dry_run", runtime.get("review_dry_run", True))),
+        "POLL_INTERVAL_SECONDS": str(int(poller.get("interval_seconds", runtime.get("poll_interval_seconds", 900)))),
+        "CODEX_REVIEW_PROFILE": str(agent.get("codex_profile", runtime.get("codex_review_profile", "llm-reviewer"))),
+        "CODEX_SANDBOX": str(agent.get("codex_sandbox", runtime.get("codex_sandbox", "read-only"))),
+        "GITLAB_API_URL": str(gitlab.get("api_url", runtime.get("gitlab_api_url", f"{gitlab_url}/api/v4"))),
         "GITLAB_DENIED_TOOLS_REGEX": str(
-            runtime.get("gitlab_denied_tools_regex", "^(delete_.*|merge_merge_request|push_files)$")
+            gitlab.get(
+                "denied_tools_regex",
+                runtime.get("gitlab_denied_tools_regex", "^(delete_.*|merge_merge_request|push_files)$"),
+            )
         ),
     }
+    if gitlab.get("bot_username"):
+        exports["LLM_REVIEWER_GITLAB_USERNAME"] = str(gitlab["bot_username"])
     exports.update(secret_env(cfg))
     return exports
 
@@ -98,6 +107,11 @@ def main() -> int:
 def _path_value(root: Path, value: object) -> Path:
     path = Path(str(value))
     return path if path.is_absolute() else root / path
+
+
+def _section(cfg: dict[str, Any], name: str) -> dict[str, Any]:
+    value = cfg.get(name) or {}
+    return value if isinstance(value, dict) else {}
 
 
 def _bool_text(value: object) -> str:

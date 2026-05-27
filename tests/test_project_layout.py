@@ -11,6 +11,8 @@ def test_project_uses_uv_src_layout() -> None:
     pyproject = ROOT / "pyproject.toml"
     data = tomllib.loads(pyproject.read_text())
 
+    assert (ROOT / "LICENSE").is_file()
+    assert data["project"]["license"] == "MIT"
     assert (ROOT / "src" / "llm_reviewer" / "poller.py").is_file()
     assert (ROOT / "src" / "llm_reviewer" / "codex_runner.py").is_file()
     assert data["tool"]["uv"]["package"] is True
