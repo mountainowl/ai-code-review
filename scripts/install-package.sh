@@ -39,7 +39,7 @@ tmp="$(mktemp -d)"
 preserved_env=""
 trap 'rm -rf "$tmp"; if [ -n "$preserved_env" ]; then rm -f "$preserved_env"; fi' EXIT
 
-(cd "$SOURCE" && tar \
+(cd "$SOURCE" && COPYFILE_DISABLE=1 tar \
     --exclude=.venv \
     --exclude=.git \
     --exclude=.pytest_cache \
@@ -55,8 +55,11 @@ if as_root test -f "$ROOT/config/env.toml"; then
     preserved_env="$(mktemp)"
     as_root cp "$ROOT/config/env.toml" "$preserved_env"
 fi
-as_root rm -rf "$ROOT"
-as_root mkdir -p "$ROOT"
+if as_root test -d "$ROOT"; then
+    as_root find "$ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+else
+    as_root mkdir -p "$ROOT"
+fi
 (cd "$tmp" && tar -cf - .) | as_root tar -xf - -C "$ROOT"
 if [ -n "$preserved_env" ] && [ -f "$preserved_env" ]; then
     as_root mkdir -p "$ROOT/config"
