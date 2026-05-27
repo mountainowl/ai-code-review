@@ -7,11 +7,7 @@ against them, and posts the findings back as inline review threads.
 
 A real finding posted by the reviewer on a GitLab MR:
 
-<img
-  src="docs/images/gitlab-mr-review-example.png"
-  alt="Example LLM-Reviewer inline finding on a GitLab merge request"
-  width="760"
->
+![Example LLM-Reviewer inline finding on a GitLab merge request](docs/images/gitlab-mr-review-example.png)
 
 ## How it works
 
