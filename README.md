@@ -3,6 +3,16 @@
 A small service that watches GitLab merge requests, runs an LLM code review
 against them, and posts the findings back as inline review threads.
 
+## Example
+
+A real finding posted by the reviewer on a GitLab MR:
+
+<img
+  src="docs/images/gitlab-mr-review-example.png"
+  alt="Example LLM-Reviewer inline finding on a GitLab merge request"
+  width="760"
+>
+
 ## How it works
 
 1. A poller (`mr-review-poller`) wakes up on an interval, lists open MRs for
