@@ -1,4 +1,4 @@
-# LLM Reviewer
+# Automated AI Based Code Reviewer
 
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-3776ab?logo=python&logoColor=white)](pyproject.toml)
 [![Managed with uv](https://img.shields.io/badge/managed%20with-uv-2f3542)](pyproject.toml)
@@ -74,9 +74,11 @@ Fix: Treat Cognito validation construction failures as failed Cognito auth when 
 Confidence: 0.94
 ```
 
-Sanitized real inline finding:
+Sanitized real inline findings:
 
-![Example LLM Reviewer inline finding on a GitLab merge request](docs/images/gitlab-mr-review-example.png)
+![LLM Reviewer inline finding for fallback behavior](docs/images/gitlab-mr-review-data-primer.png)
+
+![LLM Reviewer inline finding for request error handling](docs/images/gitlab-mr-review-exception-handler.png)
 
 More sanitized examples are in [docs/examples](docs/examples/README.md).
 
@@ -152,42 +154,195 @@ Public defaults live in `config/env.example.toml`. Copy it to ignored
 `config/env.toml` before running. Runtime config and secrets live in that one
 TOML file.
 
-| Section | Setting | Default | Purpose / impact |
-| --- | --- | --- | --- |
-| `gitlab` | `url` | `https://gitlab.com` | Web host the poller reads MRs from. For self-hosted GitLab, keep `api_url` on the same host. |
-| `gitlab` | `api_url` | `https://gitlab.com/api/v4` | API endpoint used by MCP tools inside the review agent. |
-| `gitlab` | `bot_username` | `llm-reviewer` | Lets outcome sync separate bot comments from developer replies. |
-| `gitlab` | `denied_tools_regex` | `^(delete_.*\|merge_merge_request\|push_files)$` | Blocks dangerous GitLab MCP tools even if the agent can see them. |
-| `review` | `dry_run` | `true` | Stores planned findings without posting comments. Set `false` after test reviews look right. |
-| `review` | `max_merge_requests_per_poll` | `8` | Caps how many MRs one poll cycle queues. Higher values can start more workers. |
-| `review` | `max_findings_per_merge_request` | `8` | Caps findings per MR and fills `{{MAX_FINDINGS_PER_REVIEW}}` in the prompt. |
-| `review` | `timeout_seconds` | `1800` | Kills a review worker that runs too long. |
-| `poller` | `state_dir` | `var` | Stores SQLite state, logs, reports, worktrees, and rendered prompts. |
-| `poller` | `interval_seconds` | `900` | Suggested wait for long-running poll loops. Cron/systemd can use another interval. |
-| `poller` | `target_merge_request_iid` | unset | Temporary single-MR filter. Leave unset in production. |
-| `agent` | `prompt_file` | `prompts/00-meta.md` | Meta prompt rendered before each review. |
-| `agent` | `model` | `gpt-5.5` | Model passed to the review wrapper. Keep telemetry pricing aligned for cost metrics. |
-| `agent` | `reasoning_effort` | `medium` | Review reasoning level. Higher values can cost more and run longer. |
-| `agent` | `manual_review_dry_run` | `true` | Dry-run default for manual wrappers, separate from poller posting. |
-| `agent` | `codex_profile` | `llm-reviewer` | Codex profile used by the Codex wrapper. |
-| `agent` | `codex_sandbox` | `read-only` | Filesystem access passed to Codex review runs. |
-| `secrets` | `gitlab_token` | unset | GitLab token with `api` scope. Exported as `GITLAB_TOKEN` and `GITLAB_PERSONAL_ACCESS_TOKEN`. |
-| `secrets` | `openai_api_key` | unset | OpenAI key for Codex-backed reviews. Exported as `OPENAI_API_KEY`. |
-| `secrets` | `anthropic_api_key` | unset | Anthropic key for Claude-backed reviews. Exported as `ANTHROPIC_API_KEY`. |
-| `secrets` | `qwen_api_key` | unset | Optional Qwen key for custom wrappers. Exported as `QWEN_API_KEY`. |
-| `telemetry` | `enabled` | `false` | Sends OTel metrics and spans when enabled. SQLite state is still written either way. |
-| `telemetry` | `service_name` | `llm-reviewer` | Service name shown in the OTel backend. |
-| `telemetry` | `environment` | `prod` | Environment label for dashboards, such as `dev`, `staging`, or `prod`. |
-| `telemetry` | `otlp_endpoint` | `http://127.0.0.1:4317` | Collector endpoint for metrics and traces. |
-| `telemetry` | `otlp_protocol` | `grpc` | OTLP transport. Only `grpc` is supported today. |
-| `telemetry` | `export_interval_seconds` | `30` | Metric export interval. Lower values make dashboards fresher. |
-| `telemetry` | `emit_finding_events` | `true` | Emits finding lifecycle metrics like planned, posted, skipped, and resolved. |
-| `telemetry` | `emit_outcome_sync` | `true` | Emits metrics when outcome sync checks posted finding status. |
-| `telemetry.pricing.default` | `input_per_1m` | `0.0` | Estimated input-token price per million tokens for cost metrics. |
-| `telemetry.pricing.default` | `output_per_1m` | `0.0` | Estimated output-token price per million tokens for cost metrics. |
-| `telemetry.pricing.default` | `cached_input_per_1m` | `0.0` | Estimated cached-input price per million tokens for cost metrics. |
-| `projects` | `path` | sample repos | GitLab project path to poll, for example `group/repo`. |
-| `projects` | `enabled` | `true` | Turns polling for that project on or off. |
+<table>
+  <thead>
+    <tr>
+      <th>Setting</th>
+      <th>Default</th>
+      <th>Purpose / impact</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><th colspan="3"><code>[gitlab]</code></th></tr>
+    <tr>
+      <td><code>url</code></td>
+      <td><code>https://gitlab.com</code></td>
+      <td>Web host the poller reads MRs from. For self-hosted GitLab, keep <code>api_url</code> on the same host.</td>
+    </tr>
+    <tr>
+      <td><code>api_url</code></td>
+      <td><code>https://gitlab.com/api/v4</code></td>
+      <td>API endpoint used by MCP tools inside the review agent.</td>
+    </tr>
+    <tr>
+      <td><code>bot_username</code></td>
+      <td><code>llm-reviewer</code></td>
+      <td>Lets outcome sync separate bot comments from developer replies.</td>
+    </tr>
+    <tr>
+      <td><code>denied_tools_regex</code></td>
+      <td><code>^(delete_.*|merge_merge_request|push_files)$</code></td>
+      <td>Blocks dangerous GitLab MCP tools even if the agent can see them.</td>
+    </tr>
+    <tr><th colspan="3"><code>[review]</code></th></tr>
+    <tr>
+      <td><code>dry_run</code></td>
+      <td><code>true</code></td>
+      <td>Stores planned findings without posting comments. Set <code>false</code> after test reviews look right.</td>
+    </tr>
+    <tr>
+      <td><code>max_merge_requests_per_poll</code></td>
+      <td><code>8</code></td>
+      <td>Caps how many MRs one poll cycle queues. Higher values can start more workers.</td>
+    </tr>
+    <tr>
+      <td><code>max_findings_per_merge_request</code></td>
+      <td><code>8</code></td>
+      <td>Caps findings per MR and fills <code>{{MAX_FINDINGS_PER_REVIEW}}</code> in the prompt.</td>
+    </tr>
+    <tr>
+      <td><code>timeout_seconds</code></td>
+      <td><code>1800</code></td>
+      <td>Kills a review worker that runs too long.</td>
+    </tr>
+    <tr><th colspan="3"><code>[poller]</code></th></tr>
+    <tr>
+      <td><code>state_dir</code></td>
+      <td><code>var</code></td>
+      <td>Stores SQLite state, logs, reports, worktrees, and rendered prompts.</td>
+    </tr>
+    <tr>
+      <td><code>interval_seconds</code></td>
+      <td><code>900</code></td>
+      <td>Suggested wait for long-running poll loops. Cron/systemd can use another interval.</td>
+    </tr>
+    <tr>
+      <td><code>target_merge_request_iid</code></td>
+      <td>unset</td>
+      <td>Temporary single-MR filter. Leave unset in production.</td>
+    </tr>
+    <tr><th colspan="3"><code>[agent]</code></th></tr>
+    <tr>
+      <td><code>prompt_file</code></td>
+      <td><code>prompts/00-meta.md</code></td>
+      <td>Meta prompt rendered before each review.</td>
+    </tr>
+    <tr>
+      <td><code>model</code></td>
+      <td><code>gpt-5.5</code></td>
+      <td>Model passed to the review wrapper. Keep telemetry pricing aligned for cost metrics.</td>
+    </tr>
+    <tr>
+      <td><code>reasoning_effort</code></td>
+      <td><code>medium</code></td>
+      <td>Review reasoning level. Higher values can cost more and run longer.</td>
+    </tr>
+    <tr>
+      <td><code>manual_review_dry_run</code></td>
+      <td><code>true</code></td>
+      <td>Dry-run default for manual wrappers, separate from poller posting.</td>
+    </tr>
+    <tr>
+      <td><code>codex_profile</code></td>
+      <td><code>llm-reviewer</code></td>
+      <td>Codex profile used by the Codex wrapper.</td>
+    </tr>
+    <tr>
+      <td><code>codex_sandbox</code></td>
+      <td><code>read-only</code></td>
+      <td>Filesystem access passed to Codex review runs.</td>
+    </tr>
+    <tr><th colspan="3"><code>[secrets]</code></th></tr>
+    <tr>
+      <td><code>gitlab_token</code></td>
+      <td>unset</td>
+      <td>GitLab token with <code>api</code> scope. Exported as <code>GITLAB_TOKEN</code> and <code>GITLAB_PERSONAL_ACCESS_TOKEN</code>.</td>
+    </tr>
+    <tr>
+      <td><code>openai_api_key</code></td>
+      <td>unset</td>
+      <td>OpenAI key for Codex-backed reviews. Exported as <code>OPENAI_API_KEY</code>.</td>
+    </tr>
+    <tr>
+      <td><code>anthropic_api_key</code></td>
+      <td>unset</td>
+      <td>Anthropic key for Claude-backed reviews. Exported as <code>ANTHROPIC_API_KEY</code>.</td>
+    </tr>
+    <tr>
+      <td><code>qwen_api_key</code></td>
+      <td>unset</td>
+      <td>Optional Qwen key for custom wrappers. Exported as <code>QWEN_API_KEY</code>.</td>
+    </tr>
+    <tr><th colspan="3"><code>[telemetry]</code></th></tr>
+    <tr>
+      <td><code>enabled</code></td>
+      <td><code>false</code></td>
+      <td>Sends OTel metrics and spans when enabled. SQLite state is still written either way.</td>
+    </tr>
+    <tr>
+      <td><code>service_name</code></td>
+      <td><code>llm-reviewer</code></td>
+      <td>Service name shown in the OTel backend.</td>
+    </tr>
+    <tr>
+      <td><code>environment</code></td>
+      <td><code>prod</code></td>
+      <td>Environment label for dashboards, such as <code>dev</code>, <code>staging</code>, or <code>prod</code>.</td>
+    </tr>
+    <tr>
+      <td><code>otlp_endpoint</code></td>
+      <td><code>http://127.0.0.1:4317</code></td>
+      <td>Collector endpoint for metrics and traces.</td>
+    </tr>
+    <tr>
+      <td><code>otlp_protocol</code></td>
+      <td><code>grpc</code></td>
+      <td>OTLP transport. Only <code>grpc</code> is supported today.</td>
+    </tr>
+    <tr>
+      <td><code>export_interval_seconds</code></td>
+      <td><code>30</code></td>
+      <td>Metric export interval. Lower values make dashboards fresher.</td>
+    </tr>
+    <tr>
+      <td><code>emit_finding_events</code></td>
+      <td><code>true</code></td>
+      <td>Emits finding lifecycle metrics like planned, posted, skipped, and resolved.</td>
+    </tr>
+    <tr>
+      <td><code>emit_outcome_sync</code></td>
+      <td><code>true</code></td>
+      <td>Emits metrics when outcome sync checks posted finding status.</td>
+    </tr>
+    <tr><th colspan="3"><code>[telemetry.pricing.default]</code></th></tr>
+    <tr>
+      <td><code>input_per_1m</code></td>
+      <td><code>0.0</code></td>
+      <td>Estimated input-token price per million tokens for cost metrics.</td>
+    </tr>
+    <tr>
+      <td><code>output_per_1m</code></td>
+      <td><code>0.0</code></td>
+      <td>Estimated output-token price per million tokens for cost metrics.</td>
+    </tr>
+    <tr>
+      <td><code>cached_input_per_1m</code></td>
+      <td><code>0.0</code></td>
+      <td>Estimated cached-input price per million tokens for cost metrics.</td>
+    </tr>
+    <tr><th colspan="3"><code>[[projects]]</code></th></tr>
+    <tr>
+      <td><code>path</code></td>
+      <td>sample repos</td>
+      <td>GitLab project path to poll, for example <code>group/repo</code>.</td>
+    </tr>
+    <tr>
+      <td><code>enabled</code></td>
+      <td><code>true</code></td>
+      <td>Turns polling for that project on or off.</td>
+    </tr>
+  </tbody>
+</table>
 
 ## Deploy
 
