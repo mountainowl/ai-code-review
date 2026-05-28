@@ -26,13 +26,15 @@ def test_project_tree_keeps_config_but_not_runtime_checkouts() -> None:
     assert (ROOT / "config" / "env.example.toml").is_file()
     assert (ROOT / "docs" / "images" / "llm-reviewer-hero.png").is_file()
     assert (ROOT / "docs" / "images" / "llm-reviewer-avatar-preview.png").is_file()
-    assert (ROOT / "docs" / "images" / "gitlab-mr-review-example.png").is_file()
+    assert (ROOT / "docs" / "images" / "gitlab-mr-review-data-primer.png").is_file()
+    assert (ROOT / "docs" / "images" / "gitlab-mr-review-exception-handler.png").is_file()
     assert (ROOT / "docs" / "media" / "llm-reviewer-demo.gif").is_file()
     assert (ROOT / "docs" / "examples" / "README.md").is_file()
     assert (ROOT / "assets" / "llm-reviewer.png").is_file()
     assert "docs/images/llm-reviewer-hero.png" in readme
     assert "docs/images/llm-reviewer-avatar-preview.png" in readme
-    assert "docs/images/gitlab-mr-review-example.png" in readme
+    assert "docs/images/gitlab-mr-review-data-primer.png" in readme
+    assert "docs/images/gitlab-mr-review-exception-handler.png" in readme
     assert "docs/media/llm-reviewer-demo.gif" in readme
     assert "docs/examples/README.md" in readme
     assert "assets/llm-reviewer.png" in readme
@@ -69,3 +71,33 @@ def test_launch_readiness_files_exist() -> None:
     assert "actions/workflows/ci.yml/badge.svg" in readme
     assert "api.scorecard.dev/projects/github.com/mountainowl/ai-code-review/badge" in readme
     assert "Run it as a poller beside your" in readme
+
+
+def test_readme_config_table_groups_sections() -> None:
+    readme = (ROOT / "README.md").read_text()
+
+    assert "| Section | Setting | Default | Purpose / impact |" not in readme
+    assert "<th>Setting</th>" in readme
+    assert "<th>Default</th>" in readme
+    assert "<th>Purpose / impact</th>" in readme
+    for section in (
+        "[gitlab]",
+        "[review]",
+        "[poller]",
+        "[agent]",
+        "[secrets]",
+        "[telemetry]",
+        "[telemetry.pricing.default]",
+        "[[projects]]",
+    ):
+        assert f'<tr><th colspan="3"><code>{section}</code></th></tr>' in readme
+
+
+def test_meta_prompt_includes_concise_review_style_example() -> None:
+    prompt = (ROOT / "prompts" / "00-meta.md").read_text()
+
+    assert "<style_examples>" in prompt
+    assert "trim is not applied downstream" in prompt
+    assert "Remove filler such as" in prompt
+    assert "Actual output must still be JSON" in prompt
+    assert "Issue (nit" not in prompt
