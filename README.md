@@ -488,47 +488,143 @@ For a host-local install after copying the checkout yourself:
 The wrappers in `bin/` infer the install root from their own location and
 load `config/env.toml`. No activation step.
 
-### Outcome sync
+### Schedule the poller
 
-Once findings have been posted for a while, grade them against GitLab state:
+> **`install-package.sh` does NOT install cron entries or systemd units.**
+> Scheduling is a separate, deliberate step — operators run llm-reviewer
+> under different scheduling regimes (cron, systemd, Kubernetes
+> CronJob, Nomad, …) and the install path stays scheduler-agnostic.
+
+The install ships three ready-to-copy templates under
+`deploy/templates/`. Pick **one** of the two paths below; both achieve
+the same cadence (poll every 15 min, sync outcomes hourly, health probe
+every 5 min).
+
+**Cron** (`deploy/templates/llm-reviewer.cron`):
 
 ```sh
-bin/mr-review-poller --sync-outcomes
+# As the install user (or root):
+sudo cp $LLM_CODE_REVIEW_ROOT/deploy/templates/llm-reviewer.cron /etc/cron.d/llm-reviewer
+sudo chmod 644 /etc/cron.d/llm-reviewer
+# Then edit /etc/cron.d/llm-reviewer to point LLM_CODE_REVIEW_ROOT at your install path.
 ```
 
-If SQLite was reset or you deployed after comments were already posted,
-import existing bot comments first (use the flag for your provider):
+The template's three lines fire `mr-review-poller` (poll cycle),
+`mr-review-poller --sync-outcomes` (hourly outcome grading), and
+`mr-review-poller --health` (liveness probe) at different cadences. Each
+invocation is a single exit — there is no daemon mode, so tight
+intervals are safe.
+
+**systemd** (`deploy/templates/llm-reviewer.{service,timer}`):
 
 ```sh
-# GitLab
-bin/mr-review-poller --backfill-gitlab-bot-comments-since 2026-05-25T00:00:00Z
-# GitHub
-bin/gh-review-poller --backfill-github-bot-comments-since 2026-05-25T00:00:00Z
+sudo cp $LLM_CODE_REVIEW_ROOT/deploy/templates/llm-reviewer.service /etc/systemd/system/
+sudo cp $LLM_CODE_REVIEW_ROOT/deploy/templates/llm-reviewer.timer   /etc/systemd/system/
+# Edit the .service file to point LLM_CODE_REVIEW_ROOT and credential paths
+# at your install, then:
+sudo systemctl daemon-reload
+sudo systemctl enable --now llm-reviewer.timer
+```
 
+The service file uses `LoadCredential=` to inject secrets from
+`/etc/llm-reviewer/credentials/`, so tokens stay off-disk in
+`config/env.toml`. Pair with TOML env interpolation in the config:
+
+```toml
+[gitlab]
+token = "${GITLAB_TOKEN}"
+[agents]
+llm_api_key = "${LLM_API_KEY}"
+```
+
+### Outcome sync
+
+`--sync-outcomes` grades posted findings against current SCM state. It
+runs from the same cron line the install template provides; you don't
+need to invoke it by hand once scheduling is set up.
+
+```sh
 bin/mr-review-poller --sync-outcomes
 ```
 
 Records whether each finding was resolved, left unresolved after merge,
 deleted, replied to, marked disputed, marked false-positive, or marked
-duplicate.
+duplicate — feeding the `llm_review.findings{status=…}` counter
+described in [Telemetry](#telemetry).
+
+### Backfill — one-shot, not a cron job
+
+The backfill commands import bot comments that **already exist on the
+SCM** into local SQLite. Use them when:
+
+- You just deployed against a project where the bot has historically
+  posted from another install.
+- You reset `var/state/reviewer.sqlite` (test, rebuild, host migration)
+  and need the per-finding metrics to reflect history, not just go-forward.
+
+They are **deliberately not on the cron schedule.** Each run scans every
+MR/PR updated since the cutoff — fine for a one-shot recovery, wasteful
+to repeat every 15 minutes. Run them once, then let `--sync-outcomes`
+take over for go-forward grading.
+
+```sh
+# GitLab
+bin/mr-review-poller --backfill-gitlab-bot-comments-since 2026-05-25T00:00:00Z
+
+# GitHub
+bin/gh-review-poller --backfill-github-bot-comments-since 2026-05-25T00:00:00Z
+
+# Then grade the imported rows once:
+bin/mr-review-poller --sync-outcomes
+```
+
+Both backfill commands are idempotent — a comment already in SQLite is
+upserted, not duplicated — so re-running with a different cutoff is
+safe.
 
 ---
 
 ## Telemetry
 
-LLM Reviewer emits OpenTelemetry metrics and spans so dashboard rollups stay
-outside the poller. Common dashboard slices:
+LLM Reviewer emits OpenTelemetry metrics and traces so dashboard rollups
+stay outside the poller. All metrics are namespaced `llm_review.*` and
+registered in `src/llm_reviewer/telemetry/metrics.py`.
 
-- MRs reviewed, skipped, failed, posted.
-- Findings planned, posted, skipped, resolved, disputed, deleted.
-- Review latency, queue latency, worker runtime.
-- Input, output, cached, and total tokens.
-- Estimated model cost per review, repo, finding, and resolved finding.
-- Failure counts by component: GitLab, Codex, Claude, MCP, parser, posting.
+### Emitted metrics
 
-Metric attributes are kept low-cardinality on purpose — MR IID, SHA, file
-path, line number, fingerprint, and discussion ID live in SQLite or span
-events only, never as metric labels.
+| Metric | Type | What it counts | Key attributes | Example sample (OTLP) |
+|---|---|---|---|---|
+| `llm_review.runs` | counter | One increment per completed review run (a single MR/PR worker exiting). | `repo`, `model`, `status` (`success`/`no_findings`/`failed`/`skipped`), `review_mode` (`poller`/`manual`), `dry_run` | `llm_review.runs{repo="g/r", model="gpt-5.5", status="success", review_mode="poller", dry_run="false"} 1` |
+| `llm_review.findings` | counter | One increment per finding lifecycle event — initial post AND every outcome transition picked up by `--sync-outcomes`. | `repo`, `status` (`planned`/`posted`/`skipped`/`pending_external_id`/`resolved`/`disputed`/`false_positive`/`duplicate`/`deleted`/`developer_replied`), `dry_run`, `finding_type`, `severity`, `category` | `llm_review.findings{repo="g/r", status="posted", severity="blocking", category="correctness"} 1` |
+| `llm_review.tokens` | counter | LLM token consumption per review, split into four streams. | `repo`, `model`, `status`, `review_mode`, `dry_run`, `operation` (`input`/`output`/`cached`/`total`) | `llm_review.tokens{repo="g/r", model="gpt-5.5", operation="total"} 65926` |
+| `llm_review.cost.usd` | counter | Estimated provider cost in USD per review, summed from the configured `[telemetry.pricing.*]` rates. | `repo`, `model`, `status`, `review_mode`, `dry_run` | `llm_review.cost.usd{repo="g/r", model="gpt-5.5"} 0.32963` |
+| `llm_review.failures` | counter | One increment per failed pipeline stage. | `repo`, `error_type` (Python exception class), `operation` (`review` for a failed worker, `outcome_sync` for a failed `--sync-outcomes` fetch) | `llm_review.failures{repo="g/r", operation="outcome_sync", error_type="HTTPError"} 1` |
+| `llm_review.latency.review_seconds` | histogram | Per-review wall-clock from worker start to finish. | `repo`, `model`, `status`, `review_mode`, `dry_run` | `llm_review.latency.review_seconds_sum{repo="g/r"} 412.3`<br>`llm_review.latency.review_seconds_count{repo="g/r"} 3` |
+| `llm_review.latency.queue_seconds` | histogram | Time from when a job is written to the queue to when a worker picks it up — your saturation signal. | `repo` | `llm_review.latency.queue_seconds_sum{repo="g/r"} 6.1`<br>`llm_review.latency.queue_seconds_count{repo="g/r"} 3` |
+
+Two switches in `config/env.toml` let you trim emission cost:
+
+- `[telemetry].emit_finding_events` — drop the per-finding counter
+  entirely if you only care about run-level rollups.
+- `[telemetry].emit_outcome_sync` — drop the outcome-derived increments on
+  `llm_review.findings` (`resolved`/`disputed`/`false_positive`/etc.) and
+  keep only the initial-post events.
+
+### Common dashboards
+
+- **Throughput**: `rate(llm_review.runs[5m])` grouped by `repo` + `status`.
+- **Saturation**: `histogram_quantile(0.95, llm_review.latency.queue_seconds_bucket)` — if this climbs, raise `max_merge_requests_per_poll`.
+- **Cost**: `sum(rate(llm_review.cost.usd[1d])) by (repo, model)`.
+- **Quality / ROI**: ratio of `llm_review.findings{status="resolved"}` over `llm_review.findings{status="posted"}`, grouped by `severity`.
+- **Reliability**: `rate(llm_review.failures[5m])` broken out by `operation`.
+
+### Cardinality discipline
+
+Metric attributes are kept low-cardinality on purpose. MR IID, SHA, file
+path, line number, fingerprint, and discussion ID live in **SQLite or
+span events only**, never as metric labels — so the dashboard backend
+doesn't melt as the queue accelerates. Spans carry the full per-MR
+context for trace-level drilldown.
 
 ---
 
