@@ -18,6 +18,7 @@ gh-review-poller = "llm_reviewer.github:main"
 
 [dependency-groups]
 dev = [
+  "hypothesis>=6.115",
   "mypy>=1.18.2",
   "pre-commit>=4.5.0",
   "pytest>=9.0.1",

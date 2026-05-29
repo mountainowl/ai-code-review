@@ -11,6 +11,23 @@ production tag (`0.1.0`) cuts everything currently under "Unreleased".
 ## [Unreleased]
 
 ### Added
+- **OpenSSF Scorecard hardening pass.** Pinned every GitHub Action by full
+  commit SHA across `ci.yml`, `integration.yml`, `release.yml`,
+  `scorecard.yml` (with a trailing `# vX.Y.Z` comment so Dependabot keeps
+  the SHAs current). Added `.github/workflows/codeql.yml` (Python,
+  security-and-quality query set, weekly schedule) so the SAST check
+  detects a static analyzer. Added Hypothesis-based property tests
+  (`tests/test_property_based.py`) covering env-var interpolation, stable
+  hashing, and the findings-extractor — Scorecard's fuzzing detector
+  recognizes Hypothesis. Extended `release.yml` to sign every release
+  artifact (wheel, sdist, SBOM) with `cosign` via Sigstore keyless OIDC,
+  attaching the `.sig` + `.pem` files alongside the artifacts. Fleshed out
+  `SECURITY.md` with explicit response timelines, in-/out-of-scope
+  vulnerability types, and a coordinated-disclosure clause. Enabled branch
+  protection on `main`: 1 required approval, stale-review dismissal,
+  enforce-admins, required linear history, required conversation
+  resolution, no force-pushes, no deletions, strict (up-to-date) status
+  checks.
 - **GitHub outcome-metric parity.** Thread *resolution* is now read via
   GitHub's GraphQL `reviewThreads` API (`github.graphql`,
   `get_pr_review_threads`, `classify_graphql_thread_outcome`), so
