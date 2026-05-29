@@ -36,6 +36,7 @@ from llm_reviewer.types import JsonObject
 _FENCE_START = re.compile(r"^```(?:json)?\s*")
 _FENCE_END = re.compile(r"\s*```$")
 _JSON_ARRAY_START = re.compile(r"\[")
+_CODEX_ASSISTANT_MARKER = re.compile(r"(?m)^codex\s*$")
 _HUNK_HEADER = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 # Fields of a finding that participate in the kind whitelist match. The order
@@ -91,10 +92,27 @@ def extract_findings(raw: str, max_findings: int | None = None) -> list[JsonObje
             except json.JSONDecodeError:
                 continue
             if isinstance(candidate, list) and all(isinstance(item, dict) for item in candidate):
-                candidates.append(candidate)
+                candidates.append((match.start(), candidate))
         if not candidates:
             raise ValueError("review output is not JSON findings") from None
-        data = next((candidate for candidate in candidates if candidate), candidates[0])
+        marker = _last_codex_assistant_marker_end(text)
+        if marker is not None:
+            final_candidates = [candidate for start, candidate in candidates if start >= marker]
+            if final_candidates:
+                data = next(
+                    (candidate for candidate in final_candidates if candidate),
+                    final_candidates[0],
+                )
+            else:
+                data = next(
+                    (candidate for _, candidate in candidates if candidate),
+                    candidates[0][1],
+                )
+        else:
+            data = next(
+                (candidate for _, candidate in candidates if candidate),
+                candidates[0][1],
+            )
     if isinstance(data, dict):
         data = data.get("findings", [])
     if not isinstance(data, list):
@@ -103,6 +121,14 @@ def extract_findings(raw: str, max_findings: int | None = None) -> list[JsonObje
     if max_findings is not None:
         return findings[: positive_int(max_findings, "max_findings")]
     return findings
+
+
+def _last_codex_assistant_marker_end(text: str) -> int | None:
+    """Return the character offset just after the last Codex assistant marker."""
+    marker = None
+    for match in _CODEX_ASSISTANT_MARKER.finditer(text):
+        marker = match.end()
+    return marker
 
 
 def filter_findings_by_policy(

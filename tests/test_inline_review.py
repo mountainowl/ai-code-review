@@ -231,6 +231,45 @@ tokens used
         self.assertEqual(1, len(findings))
         self.assertEqual("one", findings[0]["title"])
 
+    def test_extract_json_findings_prefers_final_codex_block_over_prompt_schema(self):
+        raw = """OpenAI Codex v0.134.0
+user
+Schema:
+[
+  {\"type\":\"issue\",\"severity\":\"blocking\",\"category\":\"correctness\",\"title\":\"schema\",\"file\":\"path/to/file\",\"line\":123}
+]
+codex
+[
+  {\"type\":\"issue\",\"severity\":\"blocking\",\"category\":\"correctness\",\"title\":\"real\",\"file\":\"src/A.java\",\"line\":12}
+]
+tokens used
+42
+[
+  {\"type\":\"issue\",\"severity\":\"blocking\",\"category\":\"correctness\",\"title\":\"real\",\"file\":\"src/A.java\",\"line\":12}
+]
+"""
+
+        findings = poller.extract_findings(raw)
+
+        self.assertEqual(1, len(findings))
+        self.assertEqual("real", findings[0]["title"])
+        self.assertEqual("src/A.java", findings[0]["file"])
+
+    def test_extract_json_findings_keeps_empty_final_codex_review(self):
+        raw = """OpenAI Codex v0.134.0
+user
+Schema:
+[
+  {\"type\":\"issue\",\"severity\":\"blocking\",\"category\":\"correctness\",\"title\":\"schema\",\"file\":\"path/to/file\",\"line\":123}
+]
+codex
+[]
+"""
+
+        findings = poller.extract_findings(raw)
+
+        self.assertEqual([], findings)
+
     def test_extract_json_findings_ignores_trailing_empty_example_array(self):
         raw = """codex
 [{\"type\":\"issue\",\"severity\":\"blocking\",\"category\":\"correctness\",\"title\":\"real\",\"file\":\"src/A.java\",\"line\":12}]
