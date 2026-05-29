@@ -1,8 +1,92 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from unittest.mock import patch
 
-from llm_reviewer.env_config import read_config_file, runtime_env
+import pytest
+
+from llm_reviewer import codex_runner
+from llm_reviewer.config_values import ConfigError
+from llm_reviewer.env_config import expand_env_placeholders, read_config_file, runtime_env
+
+
+def test_expand_env_placeholders_required_present() -> None:
+    out = expand_env_placeholders("${MY_TOKEN}", {"MY_TOKEN": "secret"})
+    assert out == "secret"
+
+
+def test_expand_env_placeholders_required_missing_raises() -> None:
+    with pytest.raises(ConfigError, match="MY_TOKEN"):
+        expand_env_placeholders("${MY_TOKEN}", {})
+
+
+def test_expand_env_placeholders_default_applies_when_missing() -> None:
+    out = expand_env_placeholders("${MY_URL:-https://default.example}", {})
+    assert out == "https://default.example"
+
+
+def test_expand_env_placeholders_default_ignored_when_present() -> None:
+    out = expand_env_placeholders(
+        "${MY_URL:-https://default.example}", {"MY_URL": "https://override.example"}
+    )
+    assert out == "https://override.example"
+
+
+def test_expand_env_placeholders_default_used_when_empty() -> None:
+    out = expand_env_placeholders("${MY_URL:-fallback}", {"MY_URL": ""})
+    assert out == "fallback"
+
+
+def test_expand_env_placeholders_escapes_dollar() -> None:
+    out = expand_env_placeholders("price: $$5", {})
+    assert out == "price: $5"
+
+
+def test_expand_env_placeholders_substring() -> None:
+    out = expand_env_placeholders("Bearer ${API_KEY}", {"API_KEY": "abc123"})
+    assert out == "Bearer abc123"
+
+
+def test_read_config_file_interpolates_env_vars(tmp_path: Path) -> None:
+    config_file = tmp_path / "env.toml"
+    config_file.write_text(
+        """
+[gitlab]
+token = "${GITLAB_TOKEN}"
+url = "${GITLAB_URL:-https://gitlab.com}"
+
+[agents]
+llm_api_key = "${LLM_API_KEY:-}"
+""",
+        encoding="utf-8",
+    )
+    with patch.dict(os.environ, {"GITLAB_TOKEN": "glpat-xyz"}, clear=False):
+        os.environ.pop("GITLAB_URL", None)
+        os.environ.pop("LLM_API_KEY", None)
+        cfg = read_config_file(config_file)
+
+    assert cfg["gitlab"]["token"] == "glpat-xyz"
+    assert cfg["gitlab"]["url"] == "https://gitlab.com"
+    assert cfg["agents"]["llm_api_key"] == ""
+
+
+def test_read_config_file_does_not_touch_non_strings(tmp_path: Path) -> None:
+    """Numeric/boolean TOML scalars must not be coerced to string by the
+    interpolator. Regression guard — the recursive walker must skip them.
+    """
+    config_file = tmp_path / "env.toml"
+    config_file.write_text(
+        """
+[review]
+dry_run = true
+max_findings_per_merge_request = 9
+""",
+        encoding="utf-8",
+    )
+    cfg = read_config_file(config_file)
+    assert cfg["review"]["dry_run"] is True
+    assert cfg["review"]["max_findings_per_merge_request"] == 9
 
 
 def test_runtime_env_exports_from_env_toml() -> None:
@@ -12,31 +96,29 @@ def test_runtime_env_exports_from_env_toml() -> None:
             "api_url": "https://gitlab.example/api/v4",
             "bot_username": "review-bot",
             "denied_tools_regex": "^(delete_.*)$",
+            "token": "gitlab-secret",
         },
         "poller": {
             "state_dir": "var",
             "interval_seconds": 123,
         },
-        "agent": {
+        "agents": {
             "prompt_file": "prompts/00-meta.md",
-            "model": "gpt-test",
+            "llm_model": "gpt-test",
+            "llm_api_key": "llm-secret",
             "reasoning_effort": "high",
-            "manual_review_dry_run": False,
+            "dry_run": False,
             "codex_profile": "reviewer",
             "codex_sandbox": "read-only",
-        },
-        "secrets": {
-            "gitlab_token": "gitlab-secret",
-            "openai_api_key": "openai-secret",
-            "anthropic_api_key": "anthropic-secret",
-            "qwen_api_key": "qwen-secret",
         },
     }
 
     env = runtime_env(root, cfg)
 
     assert env["LLM_CODE_REVIEW_ROOT"] == "/opt/llm-reviewer"
-    assert env["LLM_CODE_REVIEW_HOME"] == "/opt/llm-reviewer"
+    # LLM_CODE_REVIEW_HOME was removed — paths.py never read it and
+    # LLM_CODE_REVIEW_ROOT covers the same intent.
+    assert "LLM_CODE_REVIEW_HOME" not in env
     assert env["LLM_CODE_REVIEW_BASE_DIR"] == "/opt/llm-reviewer/var"
     assert env["LLM_CODE_REVIEW_PROMPT"] == "/opt/llm-reviewer/prompts/00-meta.md"
     assert env["REVIEW_MODEL"] == "gpt-test"
@@ -49,46 +131,63 @@ def test_runtime_env_exports_from_env_toml() -> None:
     assert env["GITLAB_DENIED_TOOLS_REGEX"] == "^(delete_.*)$"
     assert env["LLM_REVIEWER_GITLAB_USERNAME"] == "review-bot"
     assert env["GITLAB_TOKEN"] == "gitlab-secret"
-    assert env["OPENAI_API_KEY"] == "openai-secret"
-    assert env["ANTHROPIC_API_KEY"] == "anthropic-secret"
-    assert env["QWEN_API_KEY"] == "qwen-secret"
+    assert env["GITLAB_PERSONAL_ACCESS_TOKEN"] == "gitlab-secret"
+    assert env["GLAB_TOKEN"] == "gitlab-secret"
+    # Generic LLM_API_KEY is always set. Provider-specific name is selected
+    # from llm_model — "gpt-test" prefix matches OPENAI_API_KEY. The other
+    # provider names (ANTHROPIC, QWEN) are NOT exported because the host
+    # is configured for an OpenAI model — leaking an OpenAI key into them
+    # would later get forwarded into the reviewer subprocess.
+    assert env["LLM_API_KEY"] == "llm-secret"
+    assert env["OPENAI_API_KEY"] == "llm-secret"
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "QWEN_API_KEY" not in env
 
 
-def test_runtime_env_still_accepts_legacy_runtime_section() -> None:
-    root = Path("/opt/llm-reviewer")
-    cfg = {
-        "runtime": {
-            "base_dir": "state",
-            "prompt": "custom/prompt.md",
-            "review_model": "legacy-model",
-            "review_reasoning_effort": "low",
-            "review_dry_run": False,
-            "poll_interval_seconds": 321,
-            "codex_review_profile": "legacy-profile",
-            "codex_sandbox": "workspace-write",
-            "gitlab_api_url": "https://gitlab.legacy/api/v4",
-            "gitlab_denied_tools_regex": "^legacy$",
-        }
-    }
+def test_llm_key_selects_anthropic_for_claude_models() -> None:
+    env = runtime_env(
+        Path("/opt/llm-reviewer"),
+        {"agents": {"llm_api_key": "secret", "llm_model": "claude-3-opus"}},
+    )
+    assert env["LLM_API_KEY"] == "secret"
+    assert env["ANTHROPIC_API_KEY"] == "secret"
+    assert "OPENAI_API_KEY" not in env
+    assert "QWEN_API_KEY" not in env
 
-    env = runtime_env(root, cfg)
 
-    assert env["LLM_CODE_REVIEW_BASE_DIR"] == "/opt/llm-reviewer/state"
-    assert env["LLM_CODE_REVIEW_PROMPT"] == "/opt/llm-reviewer/custom/prompt.md"
-    assert env["REVIEW_MODEL"] == "legacy-model"
-    assert env["REVIEW_REASONING_EFFORT"] == "low"
+def test_llm_key_unknown_model_only_sets_generic() -> None:
+    env = runtime_env(
+        Path("/opt/llm-reviewer"),
+        {"agents": {"llm_api_key": "secret", "llm_model": "custom-model-x"}},
+    )
+    assert env["LLM_API_KEY"] == "secret"
+    assert "OPENAI_API_KEY" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+
+
+def test_agents_dry_run_controls_review_dry_run_export() -> None:
+    env = runtime_env(
+        Path("/opt/llm-reviewer"),
+        {"agents": {"dry_run": False}},
+    )
     assert env["REVIEW_DRY_RUN"] == "false"
-    assert env["POLL_INTERVAL_SECONDS"] == "321"
-    assert env["CODEX_REVIEW_PROFILE"] == "legacy-profile"
-    assert env["CODEX_SANDBOX"] == "workspace-write"
-    assert env["GITLAB_API_URL"] == "https://gitlab.legacy/api/v4"
-    assert env["GITLAB_DENIED_TOOLS_REGEX"] == "^legacy$"
+
+    env = runtime_env(
+        Path("/opt/llm-reviewer"),
+        {"agents": {"dry_run": True}},
+    )
+    assert env["REVIEW_DRY_RUN"] == "true"
 
 
-def test_empty_secrets_are_not_exported() -> None:
-    env = runtime_env(Path("/opt/llm-reviewer"), {"secrets": {"gitlab_token": "", "openai_api_key": ""}})
+def test_empty_tokens_are_not_exported() -> None:
+    env = runtime_env(
+        Path("/opt/llm-reviewer"), {"gitlab": {"token": ""}, "agents": {"llm_api_key": ""}}
+    )
 
     assert "GITLAB_TOKEN" not in env
+    assert "GITLAB_PERSONAL_ACCESS_TOKEN" not in env
+    assert "GLAB_TOKEN" not in env
+    assert "LLM_API_KEY" not in env
     assert "OPENAI_API_KEY" not in env
 
 
@@ -110,3 +209,28 @@ enabled = true
     cfg = read_config_file(env_file)
 
     assert cfg["projects"] == [{"path": "example/enabled-repo", "enabled": True}]
+
+
+def test_codex_runner_skip_agent_config_env_does_not_export_secrets(tmp_path: Path) -> None:
+    env_file = tmp_path / "env.toml"
+    env_file.write_text(
+        """
+[gitlab]
+token = "gitlab-secret"
+
+[agents]
+llm_api_key = "llm-secret"
+""",
+        encoding="utf-8",
+    )
+    original_config = codex_runner.ENV_CONFIG
+    try:
+        codex_runner.ENV_CONFIG = env_file
+        with patch.dict(os.environ, {"LLM_REVIEWER_SKIP_AGENT_CONFIG_ENV": "1"}, clear=True):
+            codex_runner.load_runtime_config()
+
+            assert "GITLAB_TOKEN" not in os.environ
+            assert "OPENAI_API_KEY" not in os.environ
+            assert "LLM_API_KEY" not in os.environ
+    finally:
+        codex_runner.ENV_CONFIG = original_config

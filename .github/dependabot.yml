@@ -1,0 +1,39 @@
+# Dependabot configuration for llm-reviewer.
+#
+# We track three ecosystems:
+#
+#   - uv (uv.lock)         — runtime + dev Python deps
+#   - pip (pyproject.toml) — fallback for tools that don't grok uv yet
+#   - github-actions       — CI workflows in .github/workflows/
+#
+# All three are checked weekly to minimize PR churn while still catching
+# CVEs reasonably quickly. Adjust to "daily" if the OpenSSF Scorecard
+# nudges you to.
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"

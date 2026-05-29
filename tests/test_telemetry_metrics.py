@@ -95,3 +95,18 @@ def test_telemetry_span_does_not_swallow_body_exceptions() -> None:
         assert str(exc) == "review failed"
     else:
         raise AssertionError("telemetry span swallowed the review exception")
+
+
+def test_configure_otel_can_retry_after_init_failure(monkeypatch) -> None:
+    from llm_reviewer.telemetry import metrics as metrics_module
+
+    metrics_module._CONFIGURED = False
+
+    def fail_create(*_: object, **__: object):
+        raise RuntimeError("bad otel")
+
+    monkeypatch.setattr(metrics_module.Resource, "create", fail_create)
+
+    metrics_module.configure_otel(TelemetryConfig(enabled=True, otlp_endpoint="http://otel:4317"))
+
+    assert metrics_module._CONFIGURED is False

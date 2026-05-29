@@ -14,14 +14,42 @@ dependencies = [
 [project.scripts]
 mr-review-poller = "llm_reviewer.poller:main"
 code-review-codex = "llm_reviewer.codex_runner:main"
+gh-review-poller = "llm_reviewer.github:main"
 
 [dependency-groups]
 dev = [
+  "mypy>=1.18.2",
+  "pre-commit>=4.5.0",
   "pytest>=9.0.1",
+  "ruff>=0.14.6",
 ]
 
 [tool.uv]
 package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "SIM", "UP", "PT", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E501", "PT009", "PT017", "PT027", "RUF012", "SIM117"]
+
+[tool.pytest.ini_options]
+# Integration tests hit a real GitLab instance and are deselected from the
+# default run. They self-skip without credentials, but deselecting keeps
+# the default `pytest` output free of skip noise. Run them explicitly with
+# `uv run pytest -m integration` (the command-line -m overrides this default).
+addopts = "-m 'not integration'"
+markers = [
+    "integration: live, read-only tests against a real GitLab instance; require LLM_REVIEWER_IT_* env vars",
+]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
 
 [build-system]
 requires = ["uv_build>=0.10.0,<0.12.0"]

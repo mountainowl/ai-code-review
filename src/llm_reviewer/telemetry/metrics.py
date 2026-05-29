@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-import sys
+import json
 import re
-from typing import Any, Iterator
+import sys
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager, suppress
+from typing import Any
 
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
@@ -17,7 +19,6 @@ from opentelemetry.trace import Span, Status, StatusCode
 
 from llm_reviewer.telemetry.config import TelemetryConfig
 from llm_reviewer.telemetry.cost import TokenUsage
-
 
 METRIC_ATTRIBUTE_KEYS = frozenset(
     {
@@ -45,6 +46,9 @@ _ENUM_VALUES = {
     "finding_type": {"issue", "suggestion", "question", "unknown"},
     "severity": {"blocking", "non-blocking", "unknown"},
 }
+SpanAttribute = (
+    str | bool | int | float | Sequence[str] | Sequence[bool] | Sequence[int] | Sequence[float]
+)
 
 
 def metric_attrs(**attrs: object) -> dict[str, str | bool | int | float]:
@@ -91,7 +95,7 @@ class ReviewTelemetry:
         )
 
     @classmethod
-    def from_config(cls, config: TelemetryConfig) -> "ReviewTelemetry":
+    def from_config(cls, config: TelemetryConfig) -> ReviewTelemetry:
         configure_otel(config)
         return cls(config)
 
@@ -103,9 +107,8 @@ class ReviewTelemetry:
         span = None
         try:
             span = self.tracer.start_span(name)
-            for key, value in attrs.items():
-                if value is not None and _safe_span_value(value):
-                    span.set_attribute(key, value)
+            for key, value in span_attrs(attrs).items():
+                span.set_attribute(key, value)
         except Exception:
             span = None
         try:
@@ -114,23 +117,22 @@ class ReviewTelemetry:
             if span is not None:
                 try:
                     sys_exc = sys.exc_info()[1]
-                    span.record_exception(sys_exc)
+                    if sys_exc is not None:
+                        span.record_exception(sys_exc)
                     span.set_status(Status(StatusCode.ERROR, str(sys_exc)))
                 except Exception:
                     pass
             raise
         finally:
             if span is not None:
-                try:
+                with suppress(Exception):
                     span.end()
-                except Exception:
-                    pass
 
     def add_event(self, span: Span | None, name: str, **attrs: object) -> None:
         if not self.enabled or span is None:
             return
         try:
-            span.add_event(name, {key: value for key, value in attrs.items() if _safe_span_value(value)})
+            span.add_event(name, span_attrs(attrs))
         except Exception:
             return
 
@@ -146,7 +148,9 @@ class ReviewTelemetry:
         tokens: TokenUsage,
         cost_usd: float,
     ) -> None:
-        attrs = metric_attrs(repo=repo, model=model, status=status, review_mode=review_mode, dry_run=dry_run)
+        attrs = metric_attrs(
+            repo=repo, model=model, status=status, review_mode=review_mode, dry_run=dry_run
+        )
         self._add(self._runs, 1, attrs)
         self._record(self._review_duration, duration_seconds, attrs)
         self._add_token("input", tokens.input, attrs)
@@ -155,7 +159,9 @@ class ReviewTelemetry:
         self._add_token("total", tokens.total, attrs)
         self._add(self._cost, cost_usd, attrs)
 
-    def record_finding(self, *, repo: str, status: str, finding: dict[str, Any], dry_run: bool) -> None:
+    def record_finding(
+        self, *, repo: str, status: str, finding: dict[str, Any], dry_run: bool
+    ) -> None:
         attrs = metric_attrs(
             repo=repo,
             status=status,
@@ -167,19 +173,25 @@ class ReviewTelemetry:
         self._add(self._findings, 1, attrs)
 
     def record_failure(self, *, repo: str, error_type: str, operation: str) -> None:
-        self._add(self._failures, 1, metric_attrs(repo=repo, error_type=error_type, operation=operation))
+        self._add(
+            self._failures, 1, metric_attrs(repo=repo, error_type=error_type, operation=operation)
+        )
 
     def record_queue_latency(self, *, repo: str, seconds: float) -> None:
         self._record(self._queue_latency, seconds, metric_attrs(repo=repo))
 
-    def _add_token(self, kind: str, value: int | None, attrs: dict[str, str | bool | int | float]) -> None:
+    def _add_token(
+        self, kind: str, value: int | None, attrs: dict[str, str | bool | int | float]
+    ) -> None:
         if value is None:
             return
         enriched = dict(attrs)
         enriched["operation"] = kind
         self._add(self._tokens, value, enriched)
 
-    def _add(self, counter: Any, value: int | float, attrs: dict[str, str | bool | int | float]) -> None:
+    def _add(
+        self, counter: Any, value: int | float, attrs: dict[str, str | bool | int | float]
+    ) -> None:
         if not self.enabled or counter is None:
             return
         try:
@@ -187,7 +199,9 @@ class ReviewTelemetry:
         except Exception:
             return
 
-    def _record(self, histogram: Any, value: int | float, attrs: dict[str, str | bool | int | float]) -> None:
+    def _record(
+        self, histogram: Any, value: int | float, attrs: dict[str, str | bool | int | float]
+    ) -> None:
         if not self.enabled or histogram is None:
             return
         try:
@@ -197,6 +211,21 @@ class ReviewTelemetry:
 
 
 def configure_otel(config: TelemetryConfig) -> None:
+    """Initialize the OTel SDK exactly once per process.
+
+    Idempotent — subsequent calls after a successful setup are no-ops.
+    Equally important: subsequent calls after a FAILED setup retry the
+    initialization rather than silently sticking to no-op state. This is a
+    deliberate change from earlier behavior that set ``_CONFIGURED = True``
+    in the except branch and caused a misconfigured endpoint to silently
+    disable telemetry for the process lifetime with no log.
+
+    Failures emit a single ``otel_init_failed`` JSON line to stderr (rather
+    than to ``poller.log``, which would create a circular dependency) and
+    leave ``_CONFIGURED = False`` so the next call can retry — useful when,
+    for example, the OTLP collector starts up a few seconds after the
+    poller.
+    """
     global _CONFIGURED
     if _CONFIGURED or not config.enabled:
         return
@@ -222,8 +251,18 @@ def configure_otel(config: TelemetryConfig) -> None:
         else:
             trace.set_tracer_provider(TracerProvider(resource=resource))
         _CONFIGURED = True
-    except Exception:
-        _CONFIGURED = True
+    except Exception as exc:
+        print(
+            json.dumps(
+                {
+                    "event": "otel_init_failed",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def _safe_instrument(factory: Any, *args: object) -> Any:
@@ -233,5 +272,9 @@ def _safe_instrument(factory: Any, *args: object) -> Any:
         return None
 
 
-def _safe_span_value(value: object) -> bool:
-    return isinstance(value, bool | int | float | str)
+def span_attrs(attrs: dict[str, object]) -> dict[str, SpanAttribute]:
+    out: dict[str, SpanAttribute] = {}
+    for key, value in attrs.items():
+        if isinstance(value, str | bool | int | float):
+            out[key] = value
+    return out
