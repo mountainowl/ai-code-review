@@ -19,11 +19,73 @@ generic, and safe to run against private repositories.
 
 ```sh
 uv sync --dev
+uv run pre-commit install   # one-time: installs both pre-commit and commit-msg hooks
 uv run pytest -q
 uv run python -m compileall -q src tests
 ```
 
 Local secrets live in ignored `config/env.toml`.
+
+## Commit messages — Conventional Commits
+
+Commit messages MUST follow [Conventional Commits 1.0][cc]. The format is
+enforced two ways: a `commit-msg` pre-commit hook on your machine, and the
+`Conventional Commits` GitHub Action on every PR. A non-conforming commit
+will be rejected before it can be pushed or merged.
+
+[cc]: https://www.conventionalcommits.org/en/v1.0.0/
+
+```
+<type>(<scope>): <subject>
+
+[optional body]
+
+[optional footers, including BREAKING CHANGE: ...]
+```
+
+| Type | When to use it | Triggers SemVer bump? |
+|---|---|---|
+| `feat` | A user-visible feature, config flag, or new CLI behavior | **minor** |
+| `fix` | A bug fix that an end user could observe | **patch** |
+| `perf` | A change purely to performance | **patch** |
+| `refactor` | An internal change with no behavior change | — |
+| `docs` | Documentation only (README, CHANGELOG, docstrings) | — |
+| `test` | Adding or fixing tests, no source change | — |
+| `build` | Build system, packaging, dependencies | — |
+| `ci` | CI workflows, hooks, repo automation | — |
+| `chore` | Repo housekeeping that isn't any of the above | — |
+| `style` | Formatting / whitespace only | — |
+
+A footer line `BREAKING CHANGE: <description>` (or an `!` after the type,
+e.g. `feat!: …`) triggers a **major** bump — except while the project is
+pre-1.0, where it triggers a **minor** bump per the `major_version_zero`
+SemVer carve-out in `pyproject.toml`.
+
+Examples:
+
+```
+feat(scm): add GitHub pull-request support
+fix(poller): honor LLM_REVIEWER_PROVIDER env override in load_review_config
+docs(security): expand SECURITY.md with disclosure timelines
+chore(deps): bump ruff to 0.14.7
+feat(review)!: drop manual_review_dry_run alias
+
+BREAKING CHANGE: `manual_review_dry_run` was removed; use `[agents].dry_run`.
+```
+
+### Cutting a release
+
+The version is single-sourced in `pyproject.toml`. To cut a release locally:
+
+```sh
+uv run cz bump --yes        # bumps version per commits since last tag, tags
+git push --follow-tags      # pushes the bump commit + tag; release.yml fires
+```
+
+The CHANGELOG is **not** auto-generated; entries are hand-curated under
+`## [Unreleased]` and renamed to the new version at release time. The
+intentional cost: a small amount of manual work per release, in exchange
+for a CHANGELOG humans actually want to read.
 
 ## Pull Requests
 
