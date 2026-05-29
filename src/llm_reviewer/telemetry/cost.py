@@ -45,6 +45,8 @@ def parse_codex_token_usage(text: str) -> TokenUsage:
 
 
 def estimate_cost_usd(usage: TokenUsage, pricing: ModelPricing) -> float:
+    if usage.total is not None and usage.input is None and usage.output is None:
+        return round(usage.total * pricing.input_per_1m / 1_000_000, 8)
     input_tokens = max((usage.input or 0) - (usage.cached or 0), 0)
     output_tokens = usage.output or 0
     cached_tokens = usage.cached or 0

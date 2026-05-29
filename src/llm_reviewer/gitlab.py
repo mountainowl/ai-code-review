@@ -105,6 +105,14 @@ def open_mrs(cfg: ReviewConfig, project: str, token: str) -> list[JsonObject]:
     return api_pages(cfg.gitlab_url, token, f"/projects/{encoded}/merge_requests?{qs}")
 
 
+def merge_requests_updated_after(
+    cfg: ReviewConfig, project: str, token: str, updated_after: str
+) -> list[JsonObject]:
+    encoded = urllib.parse.quote(project, safe="")
+    qs = urllib.parse.urlencode({"state": "all", "scope": "all", "updated_after": updated_after})
+    return api_pages(cfg.gitlab_url, token, f"/projects/{encoded}/merge_requests?{qs}")
+
+
 def get_mr(cfg: ReviewConfig, token: str, project: str, iid: int) -> JsonObject:
     encoded = urllib.parse.quote(project, safe="")
     data, _ = api(cfg.gitlab_url, token, "GET", f"/projects/{encoded}/merge_requests/{iid}")
@@ -132,6 +140,11 @@ def get_mr_discussion(
     if not isinstance(data, dict):
         raise RuntimeError("GitLab discussion response was not an object")
     return cast(JsonObject, data)
+
+
+def get_mr_discussions(cfg: ReviewConfig, token: str, project: str, iid: int) -> list[JsonObject]:
+    encoded = urllib.parse.quote(project, safe="")
+    return api_pages(cfg.gitlab_url, token, f"/projects/{encoded}/merge_requests/{iid}/discussions")
 
 
 def find_discussion_by_body(

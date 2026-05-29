@@ -31,6 +31,16 @@ class _FakeProvider:
         return self._outcome
 
 
+class _FakeGitLabProvider(_FakeProvider):
+    name = "gitlab"
+
+    def bot_username(self) -> str:
+        return "lt-llm-reviewer"
+
+    def head_sha(self, change):
+        return change.get("sha") or "head-sha"
+
+
 def test_classify_discussion_outcome_uses_explicit_manual_markers() -> None:
     discussion = {
         "id": "disc1",
@@ -201,5 +211,68 @@ def test_outcome_sync_failure_advances_last_checked_at() -> None:
 
             assert row[0] == "missing-disc"
             assert row[1]
+    finally:
+        paths.DB = original_db
+
+
+def test_backfill_gitlab_bot_comments_imports_resolved_discussions() -> None:
+    original_db = paths.DB
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths.DB = Path(tmp) / "reviewer.sqlite"
+            poller.init_db()
+            cfg = ReviewConfig(gitlab_url="https://gitlab.com", projects=["group/repo"])
+            discussion = {
+                "id": "disc1",
+                "resolved": True,
+                "notes": [
+                    {
+                        "id": 99,
+                        "author": {"username": "lt-llm-reviewer"},
+                        "created_at": "2026-05-29T00:00:00Z",
+                        "body": "**Issue (blocking, correctness):** bad path\n\n**Confidence:** 0.91",
+                        "position": {
+                            "head_sha": "sha",
+                            "new_path": "src/A.java",
+                            "new_line": 12,
+                        },
+                        "resolvable": True,
+                        "resolved": True,
+                    }
+                ],
+            }
+
+            with patch("llm_reviewer.poller.read_config", return_value=cfg):
+                with patch("llm_reviewer.poller.get_provider", return_value=_FakeGitLabProvider()):
+                    with patch(
+                        "llm_reviewer.poller.gitlab.merge_requests_updated_after",
+                        return_value=[{"iid": 7, "state": "opened", "sha": "sha"}],
+                    ):
+                        with patch(
+                            "llm_reviewer.poller.gitlab.get_mr_discussions",
+                            return_value=[discussion],
+                        ):
+                            assert poller.backfill_gitlab_bot_comments("2026-05-25T00:00:00Z") == 1
+
+            with sqlite3.connect(paths.DB) as db:
+                finding = db.execute(
+                    "select file,line,status,discussion_id,note_id,type,severity,category,confidence from review_findings"
+                ).fetchone()
+                outcome = db.execute(
+                    "select resolved,developer_replied from finding_outcomes"
+                ).fetchone()
+
+            assert finding == (
+                "src/A.java",
+                12,
+                "posted",
+                "disc1",
+                "99",
+                "issue",
+                "blocking",
+                "correctness",
+                0.91,
+            )
+            assert outcome == (1, 0)
     finally:
         paths.DB = original_db

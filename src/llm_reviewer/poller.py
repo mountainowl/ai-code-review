@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -43,9 +44,9 @@ import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from llm_reviewer import paths
+from llm_reviewer import gitlab, paths
 from llm_reviewer.config_values import ConfigError, positive_int
 from llm_reviewer.db import (
     already_seen,
@@ -102,6 +103,11 @@ from llm_reviewer.types import JsonObject
 # 2x leaves room for normal cycle-time jitter while preventing a stuck
 # cycle from silently doubling GitLab/LLM load.
 INFLIGHT_WORKER_MULTIPLIER = 2
+_NOTE_HEADER = re.compile(
+    r"^\*\*(Issue|Suggestion|Question) \((blocking|non-blocking), ([^)]+)\):\*\* (.+)$",
+    re.IGNORECASE,
+)
+_NOTE_CONFIDENCE = re.compile(r"\*\*Confidence:\*\*\s*([0-9.]+)", re.IGNORECASE)
 
 # Allowlist of env-var names forwarded into the agent subprocess. Anything
 # not on this list (including every credential the wrapper exported into
@@ -941,6 +947,99 @@ def sync_outcomes(limit: int = 200) -> int:
     return synced
 
 
+def backfill_gitlab_bot_comments(updated_after: str, limit: int = 500) -> int:
+    """Import already-posted GitLab bot discussions into local metrics state."""
+    init_db()
+    cfg = read_config()
+    provider = get_provider(cfg)
+    if provider.name != "gitlab":
+        log("backfill_unsupported_provider", provider=provider.name)
+        return 0
+    token = provider.token()
+    bot_username = provider.bot_username()
+    imported = 0
+    for project in cfg.projects:
+        for mr in gitlab.merge_requests_updated_after(cfg, project, token, updated_after):
+            iid = int(mr["iid"])
+            for discussion in gitlab.get_mr_discussions(cfg, token, project, iid):
+                if imported >= limit:
+                    log("backfill_done", imported=imported)
+                    return imported
+                note = _first_bot_note(discussion, bot_username)
+                if note is None or str(note.get("created_at") or "") < updated_after:
+                    continue
+                position = note.get("position") or {}
+                finding = _finding_from_bot_note(note, position)
+                sha = str(position.get("head_sha") or provider.head_sha(mr))
+                fingerprint = stable_hash(
+                    {
+                        "project": project,
+                        "iid": iid,
+                        "sha": sha,
+                        "discussion_id": discussion.get("id"),
+                        "note_id": note.get("id"),
+                    }
+                )
+                _db_record_finding(
+                    project=project,
+                    iid=iid,
+                    sha=sha,
+                    fingerprint=fingerprint,
+                    finding=finding,
+                    status=FindingStatus.POSTED,
+                    body=str(note.get("body") or ""),
+                    discussion_id=str(discussion.get("id") or ""),
+                    note_id=str(note.get("id") or ""),
+                )
+                outcome = gitlab.classify_discussion_outcome(
+                    discussion, bot_username=bot_username, mr_state=str(mr.get("state") or "")
+                )
+                record_finding_outcome(
+                    project=project,
+                    iid=iid,
+                    sha=sha,
+                    fingerprint=fingerprint,
+                    discussion_id=str(discussion.get("id") or ""),
+                    outcome=outcome,
+                )
+                imported += 1
+    log("backfill_done", imported=imported)
+    return imported
+
+
+def _first_bot_note(discussion: JsonObject, bot_username: str) -> JsonObject | None:
+    for item in discussion.get("notes") or []:
+        if not isinstance(item, dict):
+            continue
+        note = cast(JsonObject, item)
+        if ((note.get("author") or {}).get("username") or "") == bot_username:
+            return note
+    return None
+
+
+def _finding_from_bot_note(note: JsonObject, position: JsonObject) -> JsonObject:
+    body = str(note.get("body") or "")
+    first_line = body.splitlines()[0] if body else ""
+    match = _NOTE_HEADER.match(first_line)
+    confidence_match = _NOTE_CONFIDENCE.search(body)
+    finding: JsonObject = {
+        "file": position.get("new_path") or position.get("old_path") or "",
+        "line": position.get("new_line") or position.get("old_line"),
+        "body": body,
+        "confidence": float(confidence_match.group(1)) if confidence_match else None,
+    }
+    if match:
+        finding.update(
+            {
+                "type": match.group(1).lower(),
+                "severity": match.group(2).lower(),
+                "category": match.group(3).lower(),
+                "title": match.group(4).strip(),
+            }
+        )
+    return finding
+
+
 # ---------------------------------------------------------------------------
 # CLI dispatch
 # ---------------------------------------------------------------------------
@@ -956,6 +1055,8 @@ def main() -> int:
       review row. Exit ``0`` healthy, ``1`` stale, ``2`` config error.
     * ``--sync-outcomes [--sync-limit N]`` — check GitLab state for up to
       N already-posted findings and record outcomes.
+    * ``--backfill-gitlab-bot-comments-since ISO_TS`` — import GitLab bot
+      discussions that predate local SQLite state, then record outcomes.
     * ``--worker PATH`` — run as a single-MR worker from a queued job
       file. Used internally by :func:`fork_worker`; operators do not
       invoke this directly.
@@ -977,6 +1078,8 @@ def main() -> int:
     )
     parser.add_argument("--sync-outcomes", action="store_true")
     parser.add_argument("--sync-limit", type=int, default=200)
+    parser.add_argument("--backfill-gitlab-bot-comments-since")
+    parser.add_argument("--backfill-limit", type=int, default=500)
     parser.add_argument("--worker", type=Path)
     args = parser.parse_args()
     _install_signal_handlers()
@@ -989,6 +1092,11 @@ def main() -> int:
             return check_health()
         if args.sync_outcomes:
             sync_outcomes(args.sync_limit)
+            return 0
+        if args.backfill_gitlab_bot_comments_since:
+            backfill_gitlab_bot_comments(
+                args.backfill_gitlab_bot_comments_since, args.backfill_limit
+            )
             return 0
         if args.worker:
             return worker(args.worker)
@@ -1006,6 +1114,7 @@ def main() -> int:
 __all__ = [
     # re-exports (canonical home in sibling modules)
     "already_seen",
+    "backfill_gitlab_bot_comments",
     # pipeline helpers
     "change_number_of",
     # orchestration

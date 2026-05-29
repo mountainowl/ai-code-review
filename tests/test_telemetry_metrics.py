@@ -68,6 +68,13 @@ def test_estimate_cost_uses_model_pricing() -> None:
     assert estimate_cost_usd(usage, pricing) == 0.00155
 
 
+def test_estimate_cost_uses_total_as_input_floor_when_split_missing() -> None:
+    pricing = ModelPricing(input_per_1m=5.0, output_per_1m=30.0, cached_input_per_1m=0.5)
+    usage = TokenUsage(total=102_553)
+
+    assert estimate_cost_usd(usage, pricing) == 0.512765
+
+
 def test_disabled_review_telemetry_is_noop() -> None:
     telemetry = ReviewTelemetry(TelemetryConfig())
 

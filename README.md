@@ -404,17 +404,17 @@ credentials live in that one TOML file.
     </tr>
     <tr>
       <td><code>input_per_1m</code></td>
-      <td><code>0.0</code></td>
+      <td><code>5.0</code></td>
       <td>Estimated input-token price per million tokens for cost metrics.</td>
     </tr>
     <tr>
       <td><code>output_per_1m</code></td>
-      <td><code>0.0</code></td>
+      <td><code>30.0</code></td>
       <td>Estimated output-token price per million tokens for cost metrics.</td>
     </tr>
     <tr>
       <td><code>cached_input_per_1m</code></td>
-      <td><code>0.0</code></td>
+      <td><code>0.5</code></td>
       <td>Estimated cached-input price per million tokens for cost metrics.</td>
     </tr>
     <tr><th colspan="3"><code>[[projects]]</code></th></tr>
@@ -463,6 +463,14 @@ load `config/env.toml`. No activation step.
 Once findings have been posted for a while, grade them against GitLab state:
 
 ```sh
+bin/mr-review-poller --sync-outcomes
+```
+
+If SQLite was reset or you deployed after comments were already posted,
+import existing GitLab bot discussions first:
+
+```sh
+bin/mr-review-poller --backfill-gitlab-bot-comments-since 2026-05-25T00:00:00Z
 bin/mr-review-poller --sync-outcomes
 ```
 
