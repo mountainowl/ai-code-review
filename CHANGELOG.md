@@ -11,6 +11,17 @@ production tag (`0.1.0`) cuts everything currently under "Unreleased".
 ## [Unreleased]
 
 ### Added
+- **GitHub outcome-metric parity.** Thread *resolution* is now read via
+  GitHub's GraphQL `reviewThreads` API (`github.graphql`,
+  `get_pr_review_threads`, `classify_graphql_thread_outcome`), so
+  `--sync-outcomes` reports real resolved/unresolved counts for GitHub
+  instead of always-`false`. Comment correlation matches on both the REST
+  integer `databaseId` and the GraphQL node `id`, so it works regardless of
+  which id the post path stored. Falls back to the resolution-blind REST
+  classifier if GraphQL is unavailable. New
+  `--backfill-github-bot-comments-since ISO_TS` mirrors the GitLab backfill,
+  importing already-posted bot review threads (with real resolution state)
+  into local SQLite.
 - **Confidence threshold for posting.** `[review].min_confidence` (default
   `0.85`) drops findings below the threshold before any GitLab call. Each
   drop emits a `finding_filtered` log event with the reason.

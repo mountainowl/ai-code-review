@@ -467,10 +467,14 @@ bin/mr-review-poller --sync-outcomes
 ```
 
 If SQLite was reset or you deployed after comments were already posted,
-import existing GitLab bot discussions first:
+import existing bot comments first (use the flag for your provider):
 
 ```sh
+# GitLab
 bin/mr-review-poller --backfill-gitlab-bot-comments-since 2026-05-25T00:00:00Z
+# GitHub
+bin/gh-review-poller --backfill-github-bot-comments-since 2026-05-25T00:00:00Z
+
 bin/mr-review-poller --sync-outcomes
 ```
 
@@ -501,15 +505,16 @@ events only, never as metric labels.
 ## Status and roadmap
 
 - **GitLab posting via polling** — production path. Stable.
-- **GitHub posting via polling** — supported. Set `[scm].provider = "github"`
-  (or run `gh-review-poller`, which forces it). The poller is
-  provider-agnostic: a single :class:`ScmProvider` abstraction drives both
-  backends. Two GitHub caveats: inline-comment posting goes through a GitHub
-  MCP server with a REST fallback (the MCP tool name varies between server
-  implementations and is overrideable via `LLM_REVIEWER_GITHUB_MCP_TOOL`),
-  and thread-*resolution* outcome is GitHub-GraphQL-only, so `--sync-outcomes`
-  reports GitHub threads as unresolved (developer-replied / disputed /
-  deleted / merged-unresolved are still tracked).
+- **GitHub posting via polling** — supported, at outcome-metric parity with
+  GitLab. Set `[scm].provider = "github"` (or run `gh-review-poller`, which
+  forces it). The poller is provider-agnostic: a single :class:`ScmProvider`
+  abstraction drives both backends. Inline-comment posting goes through a
+  GitHub MCP server with a REST fallback (the MCP tool name varies between
+  server implementations and is overrideable via
+  `LLM_REVIEWER_GITHUB_MCP_TOOL`). Thread *resolution* is read via GitHub's
+  GraphQL `reviewThreads` API, so `--sync-outcomes` reports real
+  resolved/unresolved counts (with a resolution-blind REST fallback if
+  GraphQL is unavailable or the comment's thread can't be located).
 - **Webhook-driven triggering** — not implemented; polling is the only path.
 - **pip-only install** — not supported. The install needs the bundled prompt,
   skill, config template, wrapper scripts, and deployment templates that ship

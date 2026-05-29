@@ -46,7 +46,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from llm_reviewer import gitlab, paths
+from llm_reviewer import github, gitlab, paths
 from llm_reviewer.config_values import ConfigError, positive_int
 from llm_reviewer.db import (
     already_seen,
@@ -1070,6 +1070,115 @@ def _finding_from_bot_note(note: JsonObject, position: JsonObject) -> JsonObject
     return finding
 
 
+def backfill_github_bot_comments(updated_after: str, limit: int = 500) -> int:
+    """Import already-posted GitHub bot review threads into local metrics state.
+
+    The GitHub analogue of :func:`backfill_gitlab_bot_comments`. Walks PRs
+    updated at/after ``updated_after``, then each PR's review threads via
+    GraphQL (so resolution state is real), records the bot's root comment as
+    a POSTED finding, and upserts its outcome. Correlates to any existing
+    row by the stored comment id so a re-run is idempotent.
+    """
+    init_db()
+    cfg = read_config()
+    provider = get_provider(cfg)
+    if provider.name != "github":
+        log("backfill_unsupported_provider", provider=provider.name)
+        return 0
+    token = provider.token()
+    bot_username = provider.bot_username()
+    imported = 0
+    for project in cfg.projects:
+        for pr in github.pulls_updated_after(cfg, project, token, updated_after):
+            number = int(pr["number"])
+            head_sha = str((pr.get("head") or {}).get("sha") or "")
+            merged = bool(pr.get("merged") or pr.get("merged_at"))
+            pr_state = "merged" if merged else str(pr.get("state") or "")
+            for thread in github.get_pr_review_threads(cfg, token, project, number):
+                if imported >= limit:
+                    log("backfill_done", imported=imported)
+                    return imported
+                root = github.first_bot_comment(thread, bot_username)
+                if root is None:
+                    continue
+                discussion_id = str(root.get("database_id") or root.get("node_id") or "")
+                if not discussion_id:
+                    continue
+                outcome = github.classify_graphql_thread_outcome(thread, bot_username, pr_state)
+                existing = _existing_finding_for_discussion(project, number, discussion_id)
+                if existing is not None:
+                    record_finding_outcome(
+                        project=project,
+                        iid=number,
+                        sha=existing["sha"],
+                        fingerprint=existing["fingerprint"],
+                        discussion_id=discussion_id,
+                        outcome=outcome,
+                    )
+                    continue
+                node_id = str(root.get("node_id") or "")
+                finding = _finding_from_github_comment(root)
+                fingerprint = stable_hash(
+                    {
+                        "project": project,
+                        "iid": number,
+                        "sha": head_sha,
+                        "discussion_id": discussion_id,
+                        "note_id": node_id,
+                    }
+                )
+                _db_record_finding(
+                    project=project,
+                    iid=number,
+                    sha=head_sha,
+                    fingerprint=fingerprint,
+                    finding=finding,
+                    status=FindingStatus.POSTED,
+                    body=str(root.get("body") or ""),
+                    discussion_id=discussion_id,
+                    note_id=node_id,
+                )
+                record_finding_outcome(
+                    project=project,
+                    iid=number,
+                    sha=head_sha,
+                    fingerprint=fingerprint,
+                    discussion_id=discussion_id,
+                    outcome=outcome,
+                )
+                imported += 1
+    log("backfill_done", imported=imported)
+    return imported
+
+
+def _finding_from_github_comment(comment: JsonObject) -> JsonObject:
+    """Reconstruct a finding dict from a backfilled GitHub bot comment.
+
+    Mirrors :func:`_finding_from_bot_note` for GitHub's review-comment shape
+    (``path``/``line`` instead of GitLab's ``position``).
+    """
+    body = str(comment.get("body") or "")
+    first_line = body.splitlines()[0] if body else ""
+    match = _NOTE_HEADER.match(first_line)
+    confidence_match = _NOTE_CONFIDENCE.search(body)
+    finding: JsonObject = {
+        "file": comment.get("path") or "",
+        "line": comment.get("line"),
+        "body": body,
+        "confidence": float(confidence_match.group(1)) if confidence_match else None,
+    }
+    if match:
+        finding.update(
+            {
+                "type": match.group(1).lower(),
+                "severity": match.group(2).lower(),
+                "category": match.group(3).lower(),
+                "title": match.group(4).strip(),
+            }
+        )
+    return finding
+
+
 # ---------------------------------------------------------------------------
 # CLI dispatch
 # ---------------------------------------------------------------------------
@@ -1087,6 +1196,9 @@ def main() -> int:
       N already-posted findings and record outcomes.
     * ``--backfill-gitlab-bot-comments-since ISO_TS`` — import GitLab bot
       discussions that predate local SQLite state, then record outcomes.
+    * ``--backfill-github-bot-comments-since ISO_TS`` — the GitHub analogue:
+      import bot review threads (with real GraphQL resolution state) that
+      predate local SQLite state, then record outcomes.
     * ``--worker PATH`` — run as a single-MR worker from a queued job
       file. Used internally by :func:`fork_worker`; operators do not
       invoke this directly.
@@ -1109,6 +1221,7 @@ def main() -> int:
     parser.add_argument("--sync-outcomes", action="store_true")
     parser.add_argument("--sync-limit", type=int, default=200)
     parser.add_argument("--backfill-gitlab-bot-comments-since")
+    parser.add_argument("--backfill-github-bot-comments-since")
     parser.add_argument("--backfill-limit", type=int, default=500)
     parser.add_argument("--worker", type=Path)
     args = parser.parse_args()
@@ -1126,6 +1239,11 @@ def main() -> int:
         if args.backfill_gitlab_bot_comments_since:
             backfill_gitlab_bot_comments(
                 args.backfill_gitlab_bot_comments_since, args.backfill_limit
+            )
+            return 0
+        if args.backfill_github_bot_comments_since:
+            backfill_github_bot_comments(
+                args.backfill_github_bot_comments_since, args.backfill_limit
             )
             return 0
         if args.worker:

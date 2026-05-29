@@ -151,6 +151,37 @@ def test_review_comment_payload_classifies_without_error(cfg: ReviewConfig) -> N
 
 
 @_skip_no_creds
+def test_review_threads_graphql_exposes_resolution(cfg: ReviewConfig) -> None:
+    """GraphQL review threads must expose isResolved + comment ids.
+
+    Regression guard for the resolution-sync path: if GitHub's GraphQL
+    reviewThreads shape drifts (isResolved renamed, databaseId dropped),
+    the normalized thread loses the fields fetch_outcome depends on.
+    """
+    prs = github.open_prs(cfg, _PROJECT, _TOKEN)
+    if not prs:
+        pytest.skip("no open PRs in the configured test project")
+    number = GitHubProvider().change_number(prs[0])
+
+    threads = github.get_pr_review_threads(cfg, _TOKEN, _PROJECT, number)
+    assert isinstance(threads, list)
+    if not threads:
+        pytest.skip("no review threads on the first open PR")
+    for thread in threads:
+        assert isinstance(thread["is_resolved"], bool)
+        for comment in thread["comments"]:
+            # At least one stable id must be present to correlate at sync time.
+            assert comment.get("database_id") is not None or comment.get("node_id")
+
+    outcome = github.classify_graphql_thread_outcome(
+        threads[0], bot_username="llm-reviewer", pr_state=str(prs[0].get("state") or "open")
+    )
+    assert outcome.keys() >= _OUTCOME_KEYS, (
+        f"classifier output missing keys: {_OUTCOME_KEYS - outcome.keys()}"
+    )
+
+
+@_skip_no_creds
 def test_pagination_terminates_and_dedupes(cfg: ReviewConfig) -> None:
     """api_pages must terminate and not double-count on the comments endpoint."""
     prs = github.open_prs(cfg, _PROJECT, _TOKEN)

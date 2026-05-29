@@ -166,12 +166,33 @@ class GitHubProvider:
         bot_username: str,
     ) -> JsonObject:
         pr = self.get_change(cfg, token, project, number)
+        # GitHub PR `state` is open/closed; a merged PR is closed + merged.
+        # Normalize to "merged" so merged_unresolved is computed correctly.
+        pr_state = (
+            "merged" if (pr.get("merged") or pr.get("merged_at")) else str(pr.get("state") or "")
+        )
+        # Resolution state is GraphQL-only. Try it first; fall back to the
+        # resolution-blind REST classifier on any GraphQL failure so a
+        # GraphQL outage never blocks outcome sync entirely.
+        try:
+            threads = github.get_pr_review_threads(cfg, token, project, number)
+            thread = github.find_thread_for_comment(threads, thread_id)
+            if thread is not None:
+                return github.classify_graphql_thread_outcome(thread, bot_username, pr_state)
+            log(
+                "github_graphql_thread_not_found",
+                project=project,
+                number=number,
+                thread=str(thread_id),
+            )
+        except (RuntimeError, TimeoutError, OSError) as exc:
+            log("github_graphql_outcome_failed", project=project, number=number, error=str(exc))
         comment = github.get_pr_review_comment(cfg, token, project, thread_id)
         # Replies are review comments whose in_reply_to_id chains to ours.
         all_comments = github.get_pr_review_comments(cfg, token, project, number)
         replies = [c for c in all_comments if str(c.get("in_reply_to_id") or "") == str(thread_id)]
         return github.classify_review_thread_outcome(
-            comment, replies, bot_username=bot_username, pr_state=str(pr.get("state") or "")
+            comment, replies, bot_username=bot_username, pr_state=pr_state
         )
 
     def review_prompt(self, project: str, change: JsonObject, cfg: ReviewConfig) -> str:

@@ -124,6 +124,183 @@ def test_classify_review_thread_outcome_reads_markers_and_replies() -> None:
     assert outcome["merged_unresolved"] is True
 
 
+def test_graphql_url_derivation() -> None:
+    assert github._graphql_url("https://api.github.com") == "https://api.github.com/graphql"
+    assert github._graphql_url("https://api.github.com/") == "https://api.github.com/graphql"
+    # GitHub Enterprise: REST /api/v3 -> GraphQL /api/graphql on the same host.
+    assert github._graphql_url("https://ghe.example.com/api/v3") == (
+        "https://ghe.example.com/api/graphql"
+    )
+
+
+def test_graphql_raises_on_query_errors() -> None:
+    body = {"data": None, "errors": [{"message": "Field 'foo' doesn't exist"}]}
+    with patch("llm_reviewer.github._request", return_value=(body, {})):
+        try:
+            github.graphql("https://api.github.com", "tok", "query{}", {})
+        except RuntimeError as exc:
+            assert "doesn't exist" in str(exc)
+        else:  # pragma: no cover - guard
+            raise AssertionError("graphql() must raise on a non-empty errors array")
+
+
+def test_get_pr_review_threads_paginates_and_normalizes() -> None:
+    page1 = {
+        "repository": {
+            "pullRequest": {
+                "reviewThreads": {
+                    "pageInfo": {"hasNextPage": True, "endCursor": "C1"},
+                    "nodes": [
+                        {
+                            "isResolved": True,
+                            "comments": {
+                                "nodes": [
+                                    {
+                                        "databaseId": 100,
+                                        "id": "PRRC_a",
+                                        "author": {"login": "llm-reviewer"},
+                                        "body": "finding",
+                                        "path": "src/A.py",
+                                        "line": 7,
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    page2 = {
+        "repository": {
+            "pullRequest": {
+                "reviewThreads": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "isResolved": False,
+                            "comments": {"nodes": [{"databaseId": 200, "id": "PRRC_b"}]},
+                        }
+                    ],
+                }
+            }
+        }
+    }
+    with patch("llm_reviewer.github.graphql", side_effect=[page1, page2]) as mock_graphql:
+        threads = github.get_pr_review_threads(ReviewConfig(provider="github"), "tok", "o/r", 5)
+
+    assert mock_graphql.call_count == 2
+    assert [t["is_resolved"] for t in threads] == [True, False]
+    first = threads[0]["comments"][0]
+    assert first["database_id"] == 100
+    assert first["node_id"] == "PRRC_a"
+    assert first["login"] == "llm-reviewer"
+    assert first["path"] == "src/A.py"
+    assert first["line"] == 7
+
+
+def test_find_thread_for_comment_matches_database_id_and_node_id() -> None:
+    threads = [
+        {"is_resolved": True, "comments": [{"database_id": 100, "node_id": "PRRC_a"}]},
+        {"is_resolved": False, "comments": [{"database_id": 200, "node_id": "PRRC_b"}]},
+    ]
+    # Integer databaseId (REST id / most MCP servers).
+    by_db = github.find_thread_for_comment(threads, "100")
+    assert by_db is not None
+    assert by_db["is_resolved"] is True
+    # GraphQL node id (some MCP servers).
+    by_node = github.find_thread_for_comment(threads, "PRRC_b")
+    assert by_node is not None
+    assert by_node["is_resolved"] is False
+    assert github.find_thread_for_comment(threads, "999") is None
+
+
+def test_classify_graphql_thread_outcome_reads_resolution() -> None:
+    thread = {
+        "is_resolved": True,
+        "comments": [
+            {"login": "llm-reviewer", "body": "finding"},
+            {"login": "dev1", "body": "[llm-review:false-positive] nope"},
+        ],
+    }
+    outcome = github.classify_graphql_thread_outcome(
+        thread, bot_username="llm-reviewer", pr_state="merged"
+    )
+    assert outcome["resolved"] is True
+    assert outcome["developer_replied"] is True
+    assert outcome["false_positive"] is True
+    assert outcome["disputed"] is True
+    # Resolved before merge -> not a merged-unresolved finding.
+    assert outcome["merged_unresolved"] is False
+
+
+def test_classify_graphql_thread_outcome_marks_merged_unresolved() -> None:
+    thread = {"is_resolved": False, "comments": [{"login": "llm-reviewer", "body": "finding"}]}
+    outcome = github.classify_graphql_thread_outcome(
+        thread, bot_username="llm-reviewer", pr_state="merged"
+    )
+    assert outcome["resolved"] is False
+    assert outcome["merged_unresolved"] is True
+
+
+def test_fetch_outcome_uses_graphql_resolution() -> None:
+    provider = GitHubProvider()
+    threads = [
+        {
+            "is_resolved": True,
+            "comments": [{"database_id": 100, "node_id": "PRRC_a", "login": "llm-reviewer"}],
+        }
+    ]
+    with patch("llm_reviewer.github.get_pr", return_value={"state": "open"}):
+        with patch("llm_reviewer.github.get_pr_review_threads", return_value=threads):
+            outcome = provider.fetch_outcome(
+                ReviewConfig(provider="github"), "tok", "o/r", 5, "100", "llm-reviewer"
+            )
+    assert outcome["resolved"] is True
+
+
+def test_fetch_outcome_falls_back_to_rest_on_graphql_failure() -> None:
+    provider = GitHubProvider()
+    with patch("llm_reviewer.github.get_pr", return_value={"state": "closed", "merged": True}):
+        with patch(
+            "llm_reviewer.github.get_pr_review_threads",
+            side_effect=RuntimeError("graphql down"),
+        ):
+            with patch("llm_reviewer.github.get_pr_review_comment", return_value={"id": "100"}):
+                with patch("llm_reviewer.github.get_pr_review_comments", return_value=[]):
+                    outcome = provider.fetch_outcome(
+                        ReviewConfig(provider="github"), "tok", "o/r", 5, "100", "llm-reviewer"
+                    )
+    # REST classifier is resolution-blind, but a merged PR -> merged_unresolved.
+    assert outcome["resolved"] is False
+    assert outcome["merged_unresolved"] is True
+
+
+def test_pulls_updated_after_stops_at_cutoff() -> None:
+    url = (
+        "https://api.github.com/repos/o/r/pulls?state=all&sort=updated&direction=desc&per_page=100"
+    )
+    pages = {
+        url: (
+            [
+                {"number": 3, "updated_at": "2026-05-29T00:00:00Z"},
+                {"number": 2, "updated_at": "2026-05-20T00:00:00Z"},  # older than cutoff -> stop
+                {"number": 1, "updated_at": "2026-05-10T00:00:00Z"},
+            ],
+            {},
+        ),
+    }
+
+    def fake_request(req_url, token, method, body=None):
+        return pages[req_url]
+
+    with patch("llm_reviewer.github._request", side_effect=fake_request):
+        prs = github.pulls_updated_after(
+            ReviewConfig(provider="github"), "o/r", "tok", "2026-05-25T00:00:00Z"
+        )
+    assert [pr["number"] for pr in prs] == [3]
+
+
 def test_provider_review_prompt_mentions_github_pr() -> None:
     provider = GitHubProvider()
     change = {
