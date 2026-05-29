@@ -23,7 +23,7 @@ jobs:
     if: ${{ github.repository == 'mountainowl/ai-code-review' }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           persist-credentials: false
 
