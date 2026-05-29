@@ -1,0 +1,25 @@
+# Example cron(8) entry for the llm-reviewer poller.
+#
+# Copy or symlink the relevant lines into /etc/cron.d/llm-reviewer (root) or
+# `crontab -e` (per-user) and adjust LLM_CODE_REVIEW_ROOT to your install
+# path. Each `mr-review-poller` invocation is a single poll cycle that
+# exits — there is no daemon mode.
+#
+# The poller forks per-MR workers in detached sessions; the parent exits as
+# soon as the work is queued, so a tight cron interval is safe. The
+# in-flight backpressure inside poll() prevents overlapping cycles from
+# stacking up if a worker stalls.
+#
+# Schedule columns: minute hour dom month dow
+
+LLM_CODE_REVIEW_ROOT=/home/llm-reviewer/.local/share/llm-reviewer
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# Poll every 15 minutes.
+*/15 * * * *  llm-reviewer  $LLM_CODE_REVIEW_ROOT/bin/mr-review-poller >> $LLM_CODE_REVIEW_ROOT/var/log/poller.log 2>&1
+
+# Outcome sync hourly — checks GitLab discussion state for posted findings.
+17   * * * *  llm-reviewer  $LLM_CODE_REVIEW_ROOT/bin/mr-review-poller --sync-outcomes >> $LLM_CODE_REVIEW_ROOT/var/log/outcome-sync.log 2>&1
+
+# Health probe every 5 minutes — non-zero exit triggers your alerting MTA.
+*/5  * * * *  llm-reviewer  $LLM_CODE_REVIEW_ROOT/bin/mr-review-poller --health >> $LLM_CODE_REVIEW_ROOT/var/log/health.log 2>&1

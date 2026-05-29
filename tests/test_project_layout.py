@@ -3,7 +3,6 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -44,6 +43,7 @@ def test_project_tree_keeps_config_but_not_runtime_checkouts() -> None:
     assert not (ROOT / "config" / "poller.toml").exists()
     assert (ROOT / "prompts" / "00-meta.md").is_file()
     assert (ROOT / "skills" / "code-reviewer" / "SKILL.md").is_file()
+    assert not (ROOT / "skills" / "code-review").exists()
     assert not (ROOT / "root" / "usr" / "local" / "llm-code-review").exists()
     assert not any((ROOT / "var").glob("work/**/.git"))
 
@@ -80,17 +80,20 @@ def test_readme_config_table_groups_sections() -> None:
     assert "<th>Setting</th>" in readme
     assert "<th>Default</th>" in readme
     assert "<th>Purpose / impact</th>" in readme
+    assert "<code>[secrets]</code>" not in readme
+    assert "<code>[agent]</code>" not in readme
     for section in (
+        "[scm]",
         "[gitlab]",
+        "[github]",
         "[review]",
         "[poller]",
-        "[agent]",
-        "[secrets]",
+        "[agents]",
         "[telemetry]",
-        "[telemetry.pricing.default]",
         "[[projects]]",
     ):
         assert f'<tr><th colspan="3"><code>{section}</code></th></tr>' in readme
+    assert "<code>[telemetry.pricing.default]</code>" not in readme
 
 
 def test_meta_prompt_includes_concise_review_style_example() -> None:

@@ -1,24 +1,42 @@
+"""Wrapper for one-off (non-poller) Codex code reviews.
+
+Provides the ``code-review-codex`` CLI entry point. The poller forks this
+binary as a subprocess for each MR review, but it can also be invoked by
+hand:
+
+    uv run code-review-codex "Review the current changes."
+
+Compared to :mod:`llm_reviewer.poller`, this module is intentionally
+narrow: it renders the meta prompt with the configured ``max_findings``
+cap, builds a Superpowers-style review task, and execs the ``codex`` CLI
+with the right profile and noninteractive flags. It does not touch the
+SQLite state file and never talks to GitLab directly — any GitLab access
+the agent performs goes through the MCP server it controls.
+"""
+
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
-from datetime import datetime, timezone
-from pathlib import Path
 import tomllib
+from contextlib import suppress
+from datetime import UTC, datetime
+from pathlib import Path
 
-from llm_reviewer.env_config import apply_runtime_env, env_config_path, read_config_file
-
-ROOT = Path(os.environ.get("LLM_CODE_REVIEW_ROOT", Path.home() / ".local" / "share" / "llm-reviewer"))
-ENV_CONFIG = env_config_path(ROOT)
+from llm_reviewer.config_values import positive_int, section
+from llm_reviewer.env_config import apply_runtime_env, read_config_file
+from llm_reviewer.paths import CONFIG as ENV_CONFIG
+from llm_reviewer.paths import RENDERED_PROMPTS, ROOT
+from llm_reviewer.prompt import write_rendered_meta_prompt
+from llm_reviewer.subproc import run_bounded
 
 
 def load_runtime_config() -> None:
+    if os.environ.get("LLM_REVIEWER_SKIP_AGENT_CONFIG_ENV") == "1":
+        return
     if ENV_CONFIG.is_file():
-        try:
+        with suppress(OSError, tomllib.TOMLDecodeError, TypeError, ValueError):
             apply_runtime_env(ROOT, read_config_file(ENV_CONFIG))
-        except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError):
-            pass
 
 
 load_runtime_config()
@@ -29,40 +47,49 @@ CODEX_PROFILE = os.environ.get("CODEX_REVIEW_PROFILE", "llm-reviewer")
 
 
 def stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def configured_max_findings() -> int:
+    """Return the active findings cap for a manual review.
+
+    Resolution order:
+
+    1. ``LLM_REVIEW_MAX_FINDINGS`` env var (set by the poller for its
+       worker children; an operator may also set it for a hand-run).
+    2. ``MAX_FINDINGS_PER_REVIEW`` env var (legacy alias still honored
+       for compatibility with older wrapper scripts).
+    3. ``[review].max_findings_per_merge_request`` from ``env.toml``.
+    4. Hardcoded fallback of ``5``.
+    """
     for key in ("LLM_REVIEW_MAX_FINDINGS", "MAX_FINDINGS_PER_REVIEW"):
         value = os.environ.get(key)
         if value:
-            try:
-                parsed = int(value)
-            except ValueError:
-                break
-            if parsed > 0:
-                return parsed
+            return positive_int(value, key)
     config = ENV_CONFIG
     if config.is_file():
-        try:
-            cfg = tomllib.loads(config.read_text(encoding="utf-8"))
-            review = cfg.get("review") if isinstance(cfg.get("review"), dict) else {}
-            value = review.get("max_findings_per_merge_request", cfg.get("max_findings_per_review", 5))
-            parsed = int(value)
-            if parsed > 0:
-                return parsed
-        except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError):
-            pass
+        with suppress(OSError, tomllib.TOMLDecodeError, TypeError):
+            review = section(tomllib.loads(config.read_text(encoding="utf-8")), "review")
+            return positive_int(
+                review.get("max_findings_per_merge_request", 5), "max_findings_per_merge_request"
+            )
     return 5
 
 
-def render_prompt_file(prompt_file: Path, max_findings: int) -> Path:
-    text = prompt_file.read_text(encoding="utf-8").replace("{{MAX_FINDINGS_PER_REVIEW}}", str(max_findings))
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    rendered = LOG_DIR / f"rendered-meta-max-{max_findings}.md"
-    if not rendered.exists() or rendered.read_text(encoding="utf-8") != text:
-        rendered.write_text(text, encoding="utf-8")
-    return rendered
+def configured_timeout_seconds() -> int:
+    """Return the active wall-clock timeout for a manual review.
+
+    Matches the poller's ``[review].timeout_seconds`` field so a manual
+    review and a poller-driven review run under the same budget. Falls
+    back to a generous default (1800s) when the TOML is missing or the
+    field is absent.
+    """
+    config = ENV_CONFIG
+    if config.is_file():
+        with suppress(OSError, tomllib.TOMLDecodeError, TypeError):
+            review = section(tomllib.loads(config.read_text(encoding="utf-8")), "review")
+            return positive_int(review.get("timeout_seconds", 1800), "timeout_seconds")
+    return 1800
 
 
 def review_task_prompt(review_task: str, prompt_file: Path | None = None) -> str:
@@ -70,7 +97,8 @@ def review_task_prompt(review_task: str, prompt_file: Path | None = None) -> str
     return f"""/using-superpowers
 $code-reviewer
 
-Fetch the GitLab merge request using GitLab MCP and local git/glab as needed, then pass the code changes to the $code-reviewer skill for analysis.
+Fetch the GitLab merge request using GitLab MCP and local git/glab as needed.
+Pass the code changes to the $code-reviewer skill for analysis.
 Use this rendered meta prompt file for the review contract: {prompt_path}
 
 Review task:
@@ -100,23 +128,24 @@ def main() -> int:
         return 2
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    rendered_prompt = render_prompt_file(PROMPT_FILE, configured_max_findings())
+    rendered_prompt = write_rendered_meta_prompt(
+        PROMPT_FILE, RENDERED_PROMPTS, configured_max_findings()
+    )
     review_task = " ".join(sys.argv[1:]).strip() or "Review the current changes."
     prompt = review_task_prompt(review_task, rendered_prompt)
     transcript_path = LOG_DIR / f"codex-transcript-{stamp()}-{os.getpid()}.log"
-    cmd = codex_command() + [prompt]
+    cmd = [*codex_command(), prompt]
     env = os.environ.copy()
     env["LLM_CODE_REVIEW_PROMPT"] = str(rendered_prompt)
 
-    result = subprocess.run(
+    # Use the shared bounded helper — same capture shape as the poller,
+    # plus a wall-clock timeout and process-group kill on expiry so a
+    # hung codex (or MCP grandchild) cannot wedge a manual review forever.
+    result = run_bounded(
         cmd,
-        cwd=os.getcwd(),
+        cwd=Path(os.getcwd()),
         env=env,
-        stdin=subprocess.DEVNULL,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
+        timeout=configured_timeout_seconds(),
     )
 
     output = result.stdout or ""

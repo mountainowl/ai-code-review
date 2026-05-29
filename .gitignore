@@ -10,6 +10,7 @@ __pycache__/
 var/jobs/
 var/log/
 var/reports/
+var/rendered-prompts/
 var/work/
 var/worktrees/
 var/state/poller.lock

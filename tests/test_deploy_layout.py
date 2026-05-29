@@ -3,7 +3,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -23,6 +22,9 @@ def test_deployable_tree_contains_all_runtime_assets() -> None:
     required = [
         "bin/mr-review-poller",
         "bin/code-review-codex",
+        "bin/gh-review-poller",
+        "bin/mcp-gitlab",
+        "bin/mcp-github",
         "bin/env",
         "config/env.example.toml",
         "deploy/templates/codex-config.toml",
@@ -40,6 +42,9 @@ def test_deployable_tree_contains_all_runtime_assets() -> None:
     mcp_wrapper = (ROOT / "bin" / "mcp-gitlab").read_text()
     assert "command -v mcp-gitlab" in mcp_wrapper
     assert "command -v gitlab-mcp" in mcp_wrapper
+
+    gh_mcp_wrapper = (ROOT / "bin" / "mcp-github").read_text()
+    assert "command -v github-mcp-server" in gh_mcp_wrapper
 
 
 def test_deploy_archive_excludes_runtime_noise() -> None:
@@ -67,6 +72,8 @@ def test_deploy_archive_excludes_runtime_noise() -> None:
     assert "COPYFILE_DISABLE=1 tar" in deploy
     assert "COPYFILE_DISABLE=1 tar" in install
     assert "llm-reviewer.config.toml" in install
+    assert "skills/code-review/scripts" not in install
+    assert 'skills/code-review"' not in install
 
 
 def test_deploy_is_not_cron_or_single_host_coupled() -> None:

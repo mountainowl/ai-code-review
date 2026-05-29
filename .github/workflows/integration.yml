@@ -1,0 +1,54 @@
+name: Integration (live SCM)
+
+# Read-only integration tests against real GitLab and GitHub instances. They
+# catch API-shape drift that fixture-based unit tests miss. Runs nightly and
+# on demand; never on pull requests (no secret exposure to forks). The job
+# no-ops cleanly when neither provider's token secret is configured, so
+# enabling either one is purely additive. Per-test skips (see the live test
+# modules) keep the run green when only one provider's creds are present.
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # nightly, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Live GitLab + GitHub read-only tests
+    runs-on: ubuntu-latest
+    # Skip on forks — they have no access to the secrets anyway.
+    if: ${{ github.repository == 'mountainowl/ai-code-review' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Run live integration tests
+        env:
+          LLM_REVIEWER_IT_GITLAB_TOKEN: ${{ secrets.IT_GITLAB_TOKEN }}
+          LLM_REVIEWER_IT_GITLAB_PROJECT: ${{ vars.IT_GITLAB_PROJECT }}
+          LLM_REVIEWER_IT_GITLAB_URL: ${{ vars.IT_GITLAB_URL }}
+          LLM_REVIEWER_IT_GITHUB_TOKEN: ${{ secrets.IT_GITHUB_TOKEN }}
+          LLM_REVIEWER_IT_GITHUB_PROJECT: ${{ vars.IT_GITHUB_PROJECT }}
+          LLM_REVIEWER_IT_GITHUB_API_URL: ${{ vars.IT_GITHUB_API_URL }}
+        run: |
+          if [ -z "${LLM_REVIEWER_IT_GITLAB_TOKEN}" ] && [ -z "${LLM_REVIEWER_IT_GITHUB_TOKEN}" ]; then
+            echo "Neither IT_GITLAB_TOKEN nor IT_GITHUB_TOKEN configured — skipping live tests."
+            exit 0
+          fi
+          uv run pytest -m integration -v

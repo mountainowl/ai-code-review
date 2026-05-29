@@ -1,0 +1,58 @@
+name: Release
+
+# Cut a release when a version tag is pushed. Builds the sdist + wheel,
+# generates a software bill of materials (SBOM), and publishes both as
+# GitHub release assets. The SBOM gives downstream consumers a verifiable
+# dependency inventory and is one of the supply-chain artifacts OpenSSF
+# Scorecard looks for.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build, SBOM, publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to create the GitHub release
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Generate SBOM (SPDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          # Scan the source tree so syft picks up uv.lock + pyproject.toml
+          # and records the full locked dependency set.
+          path: .
+          format: spdx-json
+          artifact-name: llm-reviewer-sbom.spdx.json
+          output-file: dist/llm-reviewer-sbom.spdx.json
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/llm-reviewer-sbom.spdx.json
+          generate_release_notes: true
+          fail_on_unmatched_files: true

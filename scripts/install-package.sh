@@ -83,7 +83,7 @@ fi
 if [ "$USE_SUDO" -eq 1 ]; then
     as_root chown -R "$(id -un):$(id -gn)" "$ROOT"
 fi
-chmod +x "$ROOT"/bin/* "$ROOT"/scripts/*.sh "$ROOT"/skills/code-review/scripts/*
+chmod +x "$ROOT"/bin/* "$ROOT"/scripts/*.sh
 
 mkdir -p "$ROOT/var/state" "$ROOT/var/log" "$ROOT/var/work" "$ROOT/var/reports" "$ROOT/var/jobs"
 uv sync --locked --no-dev --project "$ROOT"
@@ -95,7 +95,6 @@ if [ "$INSTALL_AGENT_CONFIG" -eq 1 ]; then
     sed "s|{{ROOT}}|$escaped_root|g" "$ROOT/deploy/templates/codex-config.toml" > "$HOME/.codex/config.toml"
     sed "s|{{ROOT}}|$escaped_root|g" "$ROOT/deploy/templates/codex-profile.toml" > "$HOME/.codex/llm-reviewer.config.toml"
     sed "s|{{ROOT}}|$escaped_root|g" "$ROOT/deploy/templates/claude-settings.json" > "$HOME/.claude/settings.json"
-    ln -sfn "$ROOT/skills/code-review" "$HOME/.codex/skills/code-review"
     ln -sfn "$ROOT/skills/code-reviewer" "$HOME/.codex/skills/code-reviewer"
 fi
 
