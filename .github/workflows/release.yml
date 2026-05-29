@@ -20,17 +20,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # required to create the GitHub release
+      id-token: write # required for cosign keyless signing via Sigstore OIDC
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: "3.14"
 
@@ -38,7 +39,7 @@ jobs:
         run: uv build
 
       - name: Generate SBOM (SPDX JSON)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           # Scan the source tree so syft picks up uv.lock + pyproject.toml
           # and records the full locked dependency set.
@@ -47,12 +48,29 @@ jobs:
           artifact-name: llm-reviewer-sbom.spdx.json
           output-file: dist/llm-reviewer-sbom.spdx.json
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - name: Sign release artifacts with cosign
+        # Keyless signing via Sigstore + GitHub OIDC. Produces .sig + .pem
+        # for each artifact so downstream consumers can verify provenance
+        # with `cosign verify-blob` and the repo's workflow identity.
+        run: |
+          for artifact in dist/*.whl dist/*.tar.gz dist/llm-reviewer-sbom.spdx.json; do
+            cosign sign-blob --yes \
+              --output-signature "${artifact}.sig" \
+              --output-certificate "${artifact}.pem" \
+              "${artifact}"
+          done
+
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             dist/*.whl
             dist/*.tar.gz
             dist/llm-reviewer-sbom.spdx.json
+            dist/*.sig
+            dist/*.pem
           generate_release_notes: true
           fail_on_unmatched_files: true
