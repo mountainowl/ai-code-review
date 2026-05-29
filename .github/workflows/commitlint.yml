@@ -1,0 +1,47 @@
+name: Conventional Commits
+
+# Server-side enforcement of the Conventional Commits format on every PR.
+# The pre-commit hook (`.pre-commit-config.yaml`) catches bad messages on a
+# contributor's machine; this workflow catches them when the hook is skipped
+# or not installed. We intentionally run on PR-only (not push to main) — by
+# the time something reaches main it has already passed this gate.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    name: Validate commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          # `cz check --rev-range` needs the full PR history reachable from
+          # the merge-base with the base branch.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install commitizen
+        run: uv sync --locked --dev
+
+      - name: Validate every commit in this PR
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # Make sure origin/<base> is available locally for the range comparison.
+          git fetch --no-tags --depth=200 origin "${BASE_REF}"
+          # Validate the inclusive range of commits unique to this PR.
+          uv run cz check --rev-range "origin/${BASE_REF}..HEAD"
