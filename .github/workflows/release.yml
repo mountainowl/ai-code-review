@@ -48,7 +48,7 @@ jobs:
           output-file: dist/llm-reviewer-sbom.spdx.json
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.whl
