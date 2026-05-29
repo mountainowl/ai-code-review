@@ -276,3 +276,68 @@ def test_backfill_gitlab_bot_comments_imports_resolved_discussions() -> None:
             assert outcome == (1, 0)
     finally:
         paths.DB = original_db
+
+
+def test_backfill_gitlab_bot_comments_reuses_existing_discussion_row() -> None:
+    original_db = paths.DB
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths.DB = Path(tmp) / "reviewer.sqlite"
+            poller.init_db()
+            with sqlite3.connect(paths.DB) as db:
+                db.execute(
+                    """
+                    insert into review_findings(project,iid,sha,fingerprint,file,line,status,discussion_id,body,updated_at,run_id)
+                    values(?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        "group/repo",
+                        7,
+                        "sha",
+                        "existing-fp",
+                        "src/A.java",
+                        12,
+                        "posted",
+                        "disc1",
+                        "body",
+                        poller.now(),
+                        "run-1",
+                    ),
+                )
+            cfg = ReviewConfig(gitlab_url="https://gitlab.com", projects=["group/repo"])
+            discussion = {
+                "id": "disc1",
+                "resolved": True,
+                "notes": [
+                    {
+                        "id": 99,
+                        "author": {"username": "lt-llm-reviewer"},
+                        "created_at": "2026-05-29T00:00:00Z",
+                        "body": "**Issue (blocking, correctness):** bad path\n\n**Confidence:** 0.91",
+                        "position": {"head_sha": "sha", "new_path": "src/A.java", "new_line": 12},
+                        "resolvable": True,
+                        "resolved": True,
+                    }
+                ],
+            }
+
+            with patch("llm_reviewer.poller.read_config", return_value=cfg):
+                with patch("llm_reviewer.poller.get_provider", return_value=_FakeGitLabProvider()):
+                    with patch(
+                        "llm_reviewer.poller.gitlab.merge_requests_updated_after",
+                        return_value=[{"iid": 7, "state": "opened", "sha": "sha"}],
+                    ):
+                        with patch(
+                            "llm_reviewer.poller.gitlab.get_mr_discussions",
+                            return_value=[discussion],
+                        ):
+                            assert poller.backfill_gitlab_bot_comments("2026-05-25T00:00:00Z") == 0
+
+            with sqlite3.connect(paths.DB) as db:
+                finding_count = db.execute("select count(*) from review_findings").fetchone()[0]
+                outcome = db.execute("select fingerprint,resolved from finding_outcomes").fetchone()
+
+            assert finding_count == 1
+            assert outcome == ("existing-fp", 1)
+    finally:
+        paths.DB = original_db

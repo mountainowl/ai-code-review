@@ -968,6 +968,21 @@ def backfill_gitlab_bot_comments(updated_after: str, limit: int = 500) -> int:
                 note = _first_bot_note(discussion, bot_username)
                 if note is None or str(note.get("created_at") or "") < updated_after:
                     continue
+                discussion_id = str(discussion.get("id") or "")
+                existing = _existing_finding_for_discussion(project, iid, discussion_id)
+                outcome = gitlab.classify_discussion_outcome(
+                    discussion, bot_username=bot_username, mr_state=str(mr.get("state") or "")
+                )
+                if existing is not None:
+                    record_finding_outcome(
+                        project=project,
+                        iid=iid,
+                        sha=existing["sha"],
+                        fingerprint=existing["fingerprint"],
+                        discussion_id=discussion_id,
+                        outcome=outcome,
+                    )
+                    continue
                 position = note.get("position") or {}
                 finding = _finding_from_bot_note(note, position)
                 sha = str(position.get("head_sha") or provider.head_sha(mr))
@@ -988,23 +1003,38 @@ def backfill_gitlab_bot_comments(updated_after: str, limit: int = 500) -> int:
                     finding=finding,
                     status=FindingStatus.POSTED,
                     body=str(note.get("body") or ""),
-                    discussion_id=str(discussion.get("id") or ""),
+                    discussion_id=discussion_id,
                     note_id=str(note.get("id") or ""),
-                )
-                outcome = gitlab.classify_discussion_outcome(
-                    discussion, bot_username=bot_username, mr_state=str(mr.get("state") or "")
                 )
                 record_finding_outcome(
                     project=project,
                     iid=iid,
                     sha=sha,
                     fingerprint=fingerprint,
-                    discussion_id=str(discussion.get("id") or ""),
+                    discussion_id=discussion_id,
                     outcome=outcome,
                 )
                 imported += 1
     log("backfill_done", imported=imported)
     return imported
+
+
+def _existing_finding_for_discussion(
+    project: str, iid: int, discussion_id: str
+) -> JsonObject | None:
+    with connect_db() as db:
+        row = db.execute(
+            """
+            select sha,fingerprint from review_findings
+            where project=? and iid=? and discussion_id=? and status=?
+            order by case when run_id is null then 1 else 0 end
+            limit 1
+            """,
+            (project, iid, discussion_id, FindingStatus.POSTED),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"sha": str(row[0]), "fingerprint": str(row[1])}
 
 
 def _first_bot_note(discussion: JsonObject, bot_username: str) -> JsonObject | None:
