@@ -28,6 +28,20 @@ production tag (`0.1.0`) cuts everything currently under "Unreleased".
   enforce-admins, required linear history, required conversation
   resolution, no force-pushes, no deletions, strict (up-to-date) status
   checks.
+- **Conventional Commits + SemVer enforcement.** Adopted
+  [Conventional Commits 1.0](https://www.conventionalcommits.org/) for every
+  change to the repo. Validation runs in two places: a `commit-msg`
+  pre-commit hook (via [`commitizen`](https://commitizen-tools.github.io/commitizen/)),
+  and a new `.github/workflows/commitlint.yml` workflow that re-validates every
+  commit on every PR. SemVer bumps are driven by the same commit history —
+  `uv run cz bump` walks commits since the last tag, computes the right
+  `patch`/`minor`/`major` jump, rewrites `pyproject.toml` (single source of
+  truth via `version_provider = "pep621"`), and tags `v$version`. While the
+  project is pre-1.0, breaking changes bump the **minor** component per
+  SemVer's `major_version_zero` carve-out. The hand-curated CHANGELOG stays
+  authoritative (`update_changelog_on_bump = false`) so release notes
+  continue to be written for humans. See `CONTRIBUTING.md` for the type
+  cheat sheet and examples.
 - **GitHub outcome-metric parity.** Thread *resolution* is now read via
   GitHub's GraphQL `reviewThreads` API (`github.graphql`,
   `get_pr_review_threads`, `classify_graphql_thread_outcome`), so

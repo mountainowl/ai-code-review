@@ -1,3 +1,8 @@
+# Default stages: code-quality + tests fire on `git commit`; the commitizen
+# hook fires on `git commit -m "..."` (commit-msg stage) and rejects messages
+# that don't follow Conventional Commits.
+default_install_hook_types: [pre-commit, commit-msg]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.6
@@ -5,6 +10,11 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.16.2
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
   - repo: local
     hooks:
       - id: pytest
