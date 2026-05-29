@@ -41,6 +41,17 @@ _VAR_NAME = st.tuples(
     st.text(alphabet=string.ascii_letters + string.digits + "_", max_size=31),
 ).map(lambda parts: parts[0] + parts[1])
 
+# Default values that round-trip through `${VAR:-default}`. The placeholder
+# grammar's default capture is `[^}]*`, so a default containing `}` would
+# close the placeholder early (`${A:-}0}` parses as default="" then literal
+# `0}`). Likewise, a default containing `${...}`-shaped substrings would
+# nest a fresh placeholder that the parser then sees. Excluding `}` and `$`
+# keeps the default strategy inside the grammar this property describes.
+_DEFAULT_VALUE = st.text(
+    alphabet=st.characters(blacklist_characters="}$", blacklist_categories=("Cs",)),
+    max_size=50,
+)
+
 
 # ---------------------------------------------------------------------------
 # expand_env_placeholders
@@ -54,10 +65,12 @@ def test_expand_env_placeholders_is_identity_on_plain_text(text: str) -> None:
     assert expand_env_placeholders(text, {}) == text
 
 
-@_FUZZ_SETTINGS
-@given(_VAR_NAME, st.text(max_size=50))
+@settings(max_examples=200, deadline=None)
+@given(_VAR_NAME, _DEFAULT_VALUE)
 def test_expand_env_placeholders_uses_default_when_var_unset(name: str, default: str) -> None:
-    # ${VAR:-default} with VAR unset must yield exactly the default.
+    # ${VAR:-default} with VAR unset must yield exactly the default. Bumped
+    # to 200 examples after the original 50-example pass missed a `}`-in-
+    # default case (see _DEFAULT_VALUE for the grammar constraint).
     template = f"${{{name}:-{default}}}"
     assert expand_env_placeholders(template, {}) == default
 
