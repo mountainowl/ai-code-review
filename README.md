@@ -65,13 +65,48 @@ code path fails immediately.
 
 ### Runtime — required for any review
 
-| Tool | Why it is required | macOS | Linux |
-|---|---|---|---|
-| **Python 3.14+** | Runtime. | `uv python install 3.14` | `uv python install 3.14` or your distro package |
-| **[uv](https://docs.astral.sh/uv/)** | Project + dependency manager. Every CLI script invokes `uv run`. | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | same |
-| **Git CLI** | The worker runs `git fetch` / `git checkout` against change refs. | `brew install git` | `sudo apt install git` (or distro equivalent) |
-| **Codex CLI or Claude CLI** | The configured review agent. Must be installed and authenticated to your LLM provider. | [Codex](https://github.com/openai/codex) or [Claude Code](https://www.anthropic.com/claude-code) | same |
-| **[Superpowers](https://github.com/obra/superpowers) + `code-reviewer` skill** | The review prompt invokes `/using-superpowers` and the `$code-reviewer` skill — without Superpowers configured in your CLI the agent will not run the review contract. | Install Superpowers into your Codex/Claude config. The bundled skill assets live under `plugins/superpowers/` and `skills/code-reviewer/`. | same |
+Required for any review path, regardless of provider. Copy-paste a block:
+
+**macOS**
+
+```sh
+# uv — project + dependency manager. Every CLI script invokes `uv run`.
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Python 3.14+ — runtime. Managed by uv so the project version stays pinned.
+uv python install 3.14
+
+# Git CLI — the worker runs `git fetch` / `git checkout` against change refs.
+brew install git
+
+# Codex CLI or Claude CLI — the configured review agent. Install one and
+# authenticate to your LLM provider:
+#   Codex:       https://github.com/openai/codex
+#   Claude Code: https://www.anthropic.com/claude-code
+
+# Superpowers + `code-reviewer` skill — the review prompt invokes
+# /using-superpowers and the $code-reviewer skill. Without Superpowers
+# configured in your CLI the agent will not run the review contract.
+# Install Superpowers into your Codex/Claude config. The bundled skill
+# assets live under plugins/superpowers/ and skills/code-reviewer/.
+#   https://github.com/obra/superpowers
+```
+
+**Linux (Debian/Ubuntu)**
+
+```sh
+# uv — same one-liner across platforms.
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Python 3.14+ — uv manages it; distro package is a fallback.
+uv python install 3.14
+
+# Git CLI — distro package.
+sudo apt install -y git
+
+# Codex CLI / Claude CLI / Superpowers — see the macOS block; install steps
+# are platform-agnostic (npm / shell installer / config file).
+```
 
 ### Per-provider — required for the provider you enable in `[scm].provider`
 
