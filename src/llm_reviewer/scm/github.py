@@ -164,7 +164,9 @@ class GitHubProvider:
         number: int,
         body: str,
     ) -> str:
-        existing = github.find_issue_comment_by_body(cfg, token, project, number, body)
+        existing = github.find_issue_comment_by_body(
+            cfg, token, project, number, body, bot_username=self.bot_username()
+        )
         if existing:
             return existing
         created = github.create_issue_comment(cfg, token, project, number, body)

@@ -109,7 +109,9 @@ class GitLabProvider:
         number: int,
         body: str,
     ) -> str:
-        existing = gitlab.find_note_by_body(cfg, token, project, number, body)
+        existing = gitlab.find_note_by_body(
+            cfg, token, project, number, body, bot_username=self.bot_username()
+        )
         if existing:
             return existing
         created = gitlab.create_mr_note(cfg, token, project, number, body)

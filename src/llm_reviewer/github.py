@@ -224,16 +224,28 @@ def get_issue_comments(
 
 
 def find_issue_comment_by_body(
-    cfg: ReviewConfig, token: str, project: str, number: int, body: str
+    cfg: ReviewConfig,
+    token: str,
+    project: str,
+    number: int,
+    body: str,
+    *,
+    bot_username: str | None = None,
 ) -> str:
-    """Locate an existing change-level comment by exact body match.
+    """Locate an existing change-level comment authored by the bot.
 
     Returns the comment ID as a string, or ``""`` if none matches. Mirrors
-    :func:`find_review_comment_by_body` for the inline path so the clean
-    -review comment never stacks duplicates on re-review.
+    :func:`find_review_comment_by_body` for the inline path so the
+    no-findings comment never stacks duplicates on re-review. When
+    ``bot_username`` is provided, the match is restricted to comments
+    authored by the bot — a human or other bot reproducing the body must
+    not satisfy the dedup, or the reviewer would silently stop posting
+    its own no-findings acknowledgement.
     """
     for comment in get_issue_comments(cfg, token, project, number):
-        if comment.get("body") == body and comment.get("id") is not None:
+        if bot_username and ((comment.get("user") or {}).get("login") or "") != bot_username:
+            continue
+        if comment.get("body") == body and comment.get("id"):
             return str(comment["id"])
     return ""
 

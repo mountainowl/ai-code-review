@@ -190,18 +190,31 @@ def get_mr_notes(cfg: ReviewConfig, token: str, project: str, iid: int) -> list[
     return api_pages(cfg.gitlab_url, token, f"/projects/{encoded}/merge_requests/{iid}/notes")
 
 
-def find_note_by_body(cfg: ReviewConfig, token: str, project: str, iid: int, body: str) -> str:
-    """Locate an existing non-positional MR note by exact body match.
+def find_note_by_body(
+    cfg: ReviewConfig,
+    token: str,
+    project: str,
+    iid: int,
+    body: str,
+    *,
+    bot_username: str | None = None,
+) -> str:
+    """Locate an existing non-positional MR note authored by the bot.
 
     Returns the note ID as a string, or ``""`` if none matches. Mirrors
-    :func:`find_discussion_by_body` for the inline path. Only considers
-    notes the bot itself could have authored — system notes are filtered
-    out so we never match GitLab's own "Foo approved this MR" lines.
+    :func:`find_discussion_by_body` for the inline path. Filters out
+    GitLab system notes (so "Foo approved this MR" never matches) and,
+    when ``bot_username`` is provided, restricts the match to notes the
+    bot itself authored — a human or other bot reproducing the body must
+    not satisfy the dedup, or the reviewer would silently stop posting
+    its own no-findings acknowledgement.
     """
     for note in get_mr_notes(cfg, token, project, iid):
         if note.get("system"):
             continue
-        if note.get("body") == body and note.get("id") is not None:
+        if bot_username and ((note.get("author") or {}).get("username") or "") != bot_username:
+            continue
+        if note.get("body") == body and note.get("id"):
             return str(note["id"])
     return ""
 

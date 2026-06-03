@@ -25,10 +25,12 @@ from typing import Any
 
 from llm_reviewer.config_values import (
     ConfigError,
+    bool_value,
     confidence_threshold,
     lower_string_list,
     positive_int,
     section,
+    text_value,
 )
 from llm_reviewer.env_config import apply_runtime_env, read_config_file
 from llm_reviewer.paths import DEFAULT_REVIEWER, ROOT
@@ -118,11 +120,14 @@ class ReviewConfig:
         silent-on-no-findings behavior. Respects ``dry_run`` — no comment
         is posted while ``dry_run`` is ``True``.
     no_findings_comment_body:
-        Body of the no-findings comment. Operators can localize, rebrand,
-        or add traceability text (model name, run URL) without touching code.
-        Falls back to :data:`DEFAULT_NO_FINDINGS_COMMENT` when unset; an
-        empty or whitespace-only value disables the post even when
-        ``post_no_findings_comment`` is ``True``.
+        Body of the no-findings comment, posted verbatim. Operators can
+        customize it for localization or branding. Do NOT embed per-run
+        values (URLs, timestamps, model names) — the body must be byte-
+        identical across re-reviews of the same MR/PR for the idempotent
+        dedup to work; a per-run-varying body would stack a new comment
+        every poll. Falls back to :data:`DEFAULT_NO_FINDINGS_COMMENT` when
+        unset; an empty or whitespace-only value disables the post even
+        when ``post_no_findings_comment`` is ``True``.
     """
 
     provider: str = DEFAULT_PROVIDER
@@ -234,9 +239,15 @@ def review_config_from_dict(
             "min_confidence",
         ),
         allowed_kinds=lower_string_list(review.get("allowed_kinds", []), "allowed_kinds"),
-        post_no_findings_comment=bool(agent.get("post_no_findings_comment", True)),
-        no_findings_comment_body=str(
-            agent.get("no_findings_comment_body", DEFAULT_NO_FINDINGS_COMMENT)
+        post_no_findings_comment=bool_value(
+            agent.get("post_no_findings_comment"),
+            "post_no_findings_comment",
+            default=True,
+        ),
+        no_findings_comment_body=text_value(
+            agent.get("no_findings_comment_body"),
+            "no_findings_comment_body",
+            default=DEFAULT_NO_FINDINGS_COMMENT,
         ),
     )
 
