@@ -2,13 +2,13 @@
 
 Covers the three layers added for issue #13:
 
-* Config parsing — defaults and overrides for ``post_when_no_findings`` and
-  ``post_when_no_findings_comment`` in ``[agents]``.
+* Config parsing — defaults and overrides for ``post_no_findings_comment``
+  and ``no_findings_comment_body`` in ``[agents]``.
 * REST helpers — ``find_note_by_body`` / ``create_mr_note`` on GitLab and
   ``find_issue_comment_by_body`` / ``create_issue_comment`` on GitHub.
 * Provider integration — ``GitLabProvider.post_change_comment`` and
   ``GitHubProvider.post_change_comment`` dedup by exact body match.
-* Poller helper — ``post_clean_review_comment`` honors the flag, the
+* Poller helper — ``post_no_findings_comment`` honors the flag, the
   dry-run gate, and an empty message.
 """
 
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from llm_reviewer.poller import post_clean_review_comment
+from llm_reviewer.poller import post_no_findings_comment
 from llm_reviewer.review_config import (
     DEFAULT_NO_FINDINGS_COMMENT,
     ReviewConfig,
@@ -28,27 +28,27 @@ from llm_reviewer.review_config import (
 # ---------------------------------------------------------------------------
 
 
-def test_review_config_defaults_post_when_no_findings_to_true() -> None:
+def test_review_config_defaults_no_findings_comment_to_on() -> None:
     cfg = review_config_from_dict({})
 
-    assert cfg.post_when_no_findings is True
-    assert cfg.post_when_no_findings_comment == DEFAULT_NO_FINDINGS_COMMENT
+    assert cfg.post_no_findings_comment is True
+    assert cfg.no_findings_comment_body == DEFAULT_NO_FINDINGS_COMMENT
     # Sanity: the default body actually communicates the signal.
     assert "no issues" in DEFAULT_NO_FINDINGS_COMMENT.lower()
 
 
-def test_review_config_parses_custom_post_when_no_findings_block() -> None:
+def test_review_config_parses_custom_no_findings_comment_block() -> None:
     cfg = review_config_from_dict(
         {
             "agents": {
-                "post_when_no_findings": False,
-                "post_when_no_findings_comment": "All good ✅",
+                "post_no_findings_comment": False,
+                "no_findings_comment_body": "All good ✅",
             }
         }
     )
 
-    assert cfg.post_when_no_findings is False
-    assert cfg.post_when_no_findings_comment == "All good ✅"
+    assert cfg.post_no_findings_comment is False
+    assert cfg.no_findings_comment_body == "All good ✅"
 
 
 # ---------------------------------------------------------------------------
@@ -56,11 +56,11 @@ def test_review_config_parses_custom_post_when_no_findings_block() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_post_clean_review_comment_disabled_when_flag_off() -> None:
-    cfg = ReviewConfig(post_when_no_findings=False, dry_run=False)
+def test_post_no_findings_comment_disabled_when_flag_off() -> None:
+    cfg = ReviewConfig(post_no_findings_comment=False, dry_run=False)
     provider = MagicMock()
 
-    verdict = post_clean_review_comment(
+    verdict = post_no_findings_comment(
         cfg=cfg, token="tok", project="grp/repo", number=1, provider=provider
     )
 
@@ -68,15 +68,15 @@ def test_post_clean_review_comment_disabled_when_flag_off() -> None:
     provider.post_change_comment.assert_not_called()
 
 
-def test_post_clean_review_comment_disabled_when_message_is_blank() -> None:
+def test_post_no_findings_comment_disabled_when_body_is_blank() -> None:
     cfg = ReviewConfig(
-        post_when_no_findings=True,
-        post_when_no_findings_comment="   ",
+        post_no_findings_comment=True,
+        no_findings_comment_body="   ",
         dry_run=False,
     )
     provider = MagicMock()
 
-    verdict = post_clean_review_comment(
+    verdict = post_no_findings_comment(
         cfg=cfg, token="tok", project="grp/repo", number=1, provider=provider
     )
 
@@ -84,11 +84,11 @@ def test_post_clean_review_comment_disabled_when_message_is_blank() -> None:
     provider.post_change_comment.assert_not_called()
 
 
-def test_post_clean_review_comment_skipped_in_dry_run() -> None:
-    cfg = ReviewConfig(post_when_no_findings=True, dry_run=True)
+def test_post_no_findings_comment_skipped_in_dry_run() -> None:
+    cfg = ReviewConfig(post_no_findings_comment=True, dry_run=True)
     provider = MagicMock()
 
-    verdict = post_clean_review_comment(
+    verdict = post_no_findings_comment(
         cfg=cfg, token="tok", project="grp/repo", number=1, provider=provider
     )
 
@@ -96,16 +96,16 @@ def test_post_clean_review_comment_skipped_in_dry_run() -> None:
     provider.post_change_comment.assert_not_called()
 
 
-def test_post_clean_review_comment_posts_when_enabled_and_not_dry_run() -> None:
+def test_post_no_findings_comment_posts_when_enabled_and_not_dry_run() -> None:
     cfg = ReviewConfig(
-        post_when_no_findings=True,
-        post_when_no_findings_comment="Reviewer pass ✅",
+        post_no_findings_comment=True,
+        no_findings_comment_body="Reviewer pass ✅",
         dry_run=False,
     )
     provider = MagicMock()
     provider.post_change_comment.return_value = "note-7"
 
-    verdict = post_clean_review_comment(
+    verdict = post_no_findings_comment(
         cfg=cfg, token="tok", project="grp/repo", number=1, provider=provider
     )
 
@@ -241,7 +241,7 @@ def test_github_provider_post_change_comment_creates_when_missing() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_env_example_documents_post_when_no_findings() -> None:
+def test_env_example_documents_no_findings_comment_keys() -> None:
     import tomllib
     from pathlib import Path
 
@@ -249,5 +249,5 @@ def test_env_example_documents_post_when_no_findings() -> None:
     cfg = tomllib.loads((root / "config" / "env.example.toml").read_text())
     agents = cfg.get("agents", {})
 
-    assert agents.get("post_when_no_findings") is True
-    assert agents.get("post_when_no_findings_comment") == DEFAULT_NO_FINDINGS_COMMENT
+    assert agents.get("post_no_findings_comment") is True
+    assert agents.get("no_findings_comment_body") == DEFAULT_NO_FINDINGS_COMMENT

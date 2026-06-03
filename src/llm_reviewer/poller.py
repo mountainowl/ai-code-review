@@ -490,7 +490,7 @@ def _position_line(position: JsonObject) -> Any:
     return position.get("new_line") or position.get("line")
 
 
-def post_clean_review_comment(
+def post_no_findings_comment(
     *,
     cfg: ReviewConfig,
     token: str,
@@ -498,27 +498,29 @@ def post_clean_review_comment(
     number: int,
     provider: ScmProvider,
 ) -> str:
-    """Post the change-level "no issues found" comment for a clean review.
+    """Post the change-level "no issues found" comment.
 
-    Returns one of three short verdicts for the calling log:
+    Called only when the review finished with status
+    :attr:`ReviewStatus.NO_FINDINGS`. Returns one of three short verdicts
+    for the calling log:
 
     * ``"posted"`` — a new comment was created (or an existing identical
       one was matched; provider implementations dedup by exact body).
     * ``"skipped_dry_run"`` — ``cfg.dry_run`` is set, so no provider call
       was made. Mirrors the inline-comment dry-run gate.
-    * ``"disabled"`` — either ``post_when_no_findings`` is ``False`` or
-      ``post_when_no_findings_comment`` is empty/whitespace-only.
+    * ``"disabled"`` — either ``post_no_findings_comment`` is ``False``
+      or ``no_findings_comment_body`` is empty/whitespace-only.
 
     The provider call itself is idempotent on exact body match: a re-review
     of the same MR/PR will reuse the existing comment instead of stacking
     duplicates on rebases or repeated polls.
     """
-    body = cfg.post_when_no_findings_comment.strip()
-    if not cfg.post_when_no_findings or not body:
+    body = cfg.no_findings_comment_body.strip()
+    if not cfg.post_no_findings_comment or not body:
         return "disabled"
     if cfg.dry_run:
         return "skipped_dry_run"
-    provider.post_change_comment(cfg, token, project, number, cfg.post_when_no_findings_comment)
+    provider.post_change_comment(cfg, token, project, number, cfg.no_findings_comment_body)
     return "posted"
 
 
@@ -782,7 +784,7 @@ def worker(job: Path) -> int:
                 else ReviewStatus.SUCCESS
             )
             if status == ReviewStatus.NO_FINDINGS:
-                clean_comment_verdict = post_clean_review_comment(
+                no_findings_verdict = post_no_findings_comment(
                     cfg=cfg,
                     token=token,
                     project=project,
@@ -790,11 +792,11 @@ def worker(job: Path) -> int:
                     provider=provider,
                 )
                 log(
-                    "clean_review_comment",
+                    "no_findings_comment",
                     project=project,
                     iid=iid,
                     sha=sha,
-                    verdict=clean_comment_verdict,
+                    verdict=no_findings_verdict,
                     run_id=run_id,
                 )
             record(project, iid, sha, status, str(report))

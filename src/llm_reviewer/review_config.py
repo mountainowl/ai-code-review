@@ -44,7 +44,7 @@ SUPPORTED_PROVIDERS = ("gitlab", "github")
 DEFAULT_PROVIDER = "gitlab"
 
 # Default body of the change-level comment posted when a review finds nothing.
-# Operators override via ``[agents].post_when_no_findings_comment``. Kept
+# Operators override via ``[agents].no_findings_comment_body``. Kept
 # short on purpose — the value of the signal is "reviewer ran and was happy",
 # not a verbose summary.
 DEFAULT_NO_FINDINGS_COMMENT = "Automated review ran — no issues found."
@@ -110,18 +110,19 @@ class ReviewConfig:
         finding is kept if **any** of its ``severity``, ``category``, or
         ``type`` fields appear in this list. An empty list means
         "post everything that meets ``min_confidence``" — the common default.
-    post_when_no_findings:
+    post_no_findings_comment:
         When ``True`` (the default), the poller posts a single change-level
         comment after a review completes with zero actionable findings, so
         authors and approvers can tell "reviewer ran and was happy" apart
         from "reviewer never ran." Set ``False`` to restore the previous
-        silent-on-clean behavior. Respects ``dry_run`` — no comment is
-        posted while ``dry_run`` is ``True``.
-    post_when_no_findings_comment:
-        Body of the clean-review comment. Operators can localize, rebrand,
+        silent-on-no-findings behavior. Respects ``dry_run`` — no comment
+        is posted while ``dry_run`` is ``True``.
+    no_findings_comment_body:
+        Body of the no-findings comment. Operators can localize, rebrand,
         or add traceability text (model name, run URL) without touching code.
         Falls back to :data:`DEFAULT_NO_FINDINGS_COMMENT` when unset; an
-        empty or whitespace-only value disables the post.
+        empty or whitespace-only value disables the post even when
+        ``post_no_findings_comment`` is ``True``.
     """
 
     provider: str = DEFAULT_PROVIDER
@@ -139,8 +140,8 @@ class ReviewConfig:
     projects: list[str] = field(default_factory=list)
     min_confidence: float = DEFAULT_MIN_CONFIDENCE
     allowed_kinds: list[str] = field(default_factory=list)
-    post_when_no_findings: bool = True
-    post_when_no_findings_comment: str = DEFAULT_NO_FINDINGS_COMMENT
+    post_no_findings_comment: bool = True
+    no_findings_comment_body: str = DEFAULT_NO_FINDINGS_COMMENT
 
 
 def load_review_config(
@@ -233,9 +234,9 @@ def review_config_from_dict(
             "min_confidence",
         ),
         allowed_kinds=lower_string_list(review.get("allowed_kinds", []), "allowed_kinds"),
-        post_when_no_findings=bool(agent.get("post_when_no_findings", True)),
-        post_when_no_findings_comment=str(
-            agent.get("post_when_no_findings_comment", DEFAULT_NO_FINDINGS_COMMENT)
+        post_no_findings_comment=bool(agent.get("post_no_findings_comment", True)),
+        no_findings_comment_body=str(
+            agent.get("no_findings_comment_body", DEFAULT_NO_FINDINGS_COMMENT)
         ),
     )
 
