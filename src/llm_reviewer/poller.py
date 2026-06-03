@@ -490,6 +490,38 @@ def _position_line(position: JsonObject) -> Any:
     return position.get("new_line") or position.get("line")
 
 
+def post_clean_review_comment(
+    *,
+    cfg: ReviewConfig,
+    token: str,
+    project: str,
+    number: int,
+    provider: ScmProvider,
+) -> str:
+    """Post the change-level "no issues found" comment for a clean review.
+
+    Returns one of three short verdicts for the calling log:
+
+    * ``"posted"`` — a new comment was created (or an existing identical
+      one was matched; provider implementations dedup by exact body).
+    * ``"skipped_dry_run"`` — ``cfg.dry_run`` is set, so no provider call
+      was made. Mirrors the inline-comment dry-run gate.
+    * ``"disabled"`` — either ``post_when_no_findings`` is ``False`` or
+      ``post_when_no_findings_comment`` is empty/whitespace-only.
+
+    The provider call itself is idempotent on exact body match: a re-review
+    of the same MR/PR will reuse the existing comment instead of stacking
+    duplicates on rebases or repeated polls.
+    """
+    body = cfg.post_when_no_findings_comment.strip()
+    if not cfg.post_when_no_findings or not body:
+        return "disabled"
+    if cfg.dry_run:
+        return "skipped_dry_run"
+    provider.post_change_comment(cfg, token, project, number, cfg.post_when_no_findings_comment)
+    return "posted"
+
+
 def post_or_plan_findings(
     *,
     cfg: ReviewConfig,
@@ -749,6 +781,22 @@ def worker(job: Path) -> int:
                 if (posted, planned, skipped) == (0, 0, 0)
                 else ReviewStatus.SUCCESS
             )
+            if status == ReviewStatus.NO_FINDINGS:
+                clean_comment_verdict = post_clean_review_comment(
+                    cfg=cfg,
+                    token=token,
+                    project=project,
+                    number=iid,
+                    provider=provider,
+                )
+                log(
+                    "clean_review_comment",
+                    project=project,
+                    iid=iid,
+                    sha=sha,
+                    verdict=clean_comment_verdict,
+                    run_id=run_id,
+                )
             record(project, iid, sha, status, str(report))
             record_review_run_finish(
                 run_id=run_id,

@@ -180,6 +180,45 @@ def create_merge_request_discussion(
     return cast(JsonObject, data) if isinstance(data, dict) else {}
 
 
+def get_mr_notes(cfg: ReviewConfig, token: str, project: str, iid: int) -> list[JsonObject]:
+    """Return all notes (non-inline comments) on a merge request.
+
+    Used to dedup the change-level "no issues found" comment so a re-review
+    of the same MR (after rebase or polling) does not stack duplicates.
+    """
+    encoded = urllib.parse.quote(project, safe="")
+    return api_pages(cfg.gitlab_url, token, f"/projects/{encoded}/merge_requests/{iid}/notes")
+
+
+def find_note_by_body(cfg: ReviewConfig, token: str, project: str, iid: int, body: str) -> str:
+    """Locate an existing non-positional MR note by exact body match.
+
+    Returns the note ID as a string, or ``""`` if none matches. Mirrors
+    :func:`find_discussion_by_body` for the inline path. Only considers
+    notes the bot itself could have authored — system notes are filtered
+    out so we never match GitLab's own "Foo approved this MR" lines.
+    """
+    for note in get_mr_notes(cfg, token, project, iid):
+        if note.get("system"):
+            continue
+        if note.get("body") == body and note.get("id") is not None:
+            return str(note["id"])
+    return ""
+
+
+def create_mr_note(cfg: ReviewConfig, token: str, project: str, iid: int, body: str) -> JsonObject:
+    """Post a non-positional ("general") note on a merge request."""
+    encoded = urllib.parse.quote(project, safe="")
+    data, _ = api(
+        cfg.gitlab_url,
+        token,
+        "POST",
+        f"/projects/{encoded}/merge_requests/{iid}/notes",
+        {"body": body},
+    )
+    return cast(JsonObject, data) if isinstance(data, dict) else {}
+
+
 def classify_discussion_outcome(
     discussion: JsonObject, bot_username: str, mr_state: str
 ) -> JsonObject:

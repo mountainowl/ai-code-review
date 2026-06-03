@@ -105,6 +105,24 @@ class ScmProvider(Protocol):
         """Post one inline comment; return its thread/comment ID (or ``""``)."""
         ...
 
+    def post_change_comment(
+        self,
+        cfg: ReviewConfig,
+        token: str,
+        project: str,
+        number: int,
+        body: str,
+    ) -> str:
+        """Post one change-level (non-inline) comment; return its ID (or ``""``).
+
+        Used for narrative posts that are not anchored to a specific diff
+        line — currently only the "no issues found" clean-review comment.
+        Implementations are expected to be idempotent on exact-body match:
+        if a comment with the same body already exists, return its ID
+        instead of posting a duplicate.
+        """
+        ...
+
     def fetch_outcome(
         self,
         cfg: ReviewConfig,

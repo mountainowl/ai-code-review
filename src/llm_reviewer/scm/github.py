@@ -156,6 +156,21 @@ class GitHubProvider:
             github.create_pr_review_comment(cfg, token, project, number, body, position)
         )
 
+    def post_change_comment(
+        self,
+        cfg: ReviewConfig,
+        token: str,
+        project: str,
+        number: int,
+        body: str,
+    ) -> str:
+        existing = github.find_issue_comment_by_body(cfg, token, project, number, body)
+        if existing:
+            return existing
+        created = github.create_issue_comment(cfg, token, project, number, body)
+        comment_id = created.get("id")
+        return "" if comment_id is None else str(comment_id)
+
     def fetch_outcome(
         self,
         cfg: ReviewConfig,

@@ -10,6 +10,22 @@ production tag (`0.1.0`) cuts everything currently under "Unreleased".
 
 ## [Unreleased]
 
+### Added
+- **"No issues found" comment on clean reviews.** When a review completes
+  with zero actionable findings, the poller now posts a single
+  change-level comment (`"Automated review ran — no issues found."` by
+  default) so authors and approvers can distinguish "reviewer ran and was
+  happy" from "reviewer never ran." Behavior is on by default; gated by
+  two new `[agents]` keys: `post_when_no_findings` (bool, default
+  `true` — set `false` to restore the previous silent behavior) and
+  `post_when_no_findings_comment` (string — customize for localization,
+  branding, or to embed traceability text; whitespace-only disables the
+  post even when the flag is on). Honors `[review].dry_run`. Idempotent
+  on exact body match — re-reviews of the same MR/PR reuse the existing
+  comment rather than stacking duplicates on rebases or repeated polls.
+  Implemented as a new `post_change_comment` method on the SCM provider
+  protocol (GitLab MR notes, GitHub issue comments). Closes #13.
+
 ## [0.3.0] - 2026-06-01
 
 ### Added
