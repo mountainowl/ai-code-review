@@ -6,47 +6,64 @@ credentials are in hand.
 
 ## Install
 
-The install needs the bundled prompt, skill, config template, wrapper
-scripts, and deployment templates that ship with the checkout.
-**`pip install` is not a supported deploy path** — the
-`llm_reviewer-X.Y.Z-py3-none-any.whl` and `llm_reviewer-X.Y.Z.tar.gz`
-artifacts attached to each GitHub Release carry only the Python package
-(no `config/`, `scripts/`, `deploy/`, `bin/`, `prompts/`, or
-`skills/`). Use one of the two deploy artifacts below instead.
+The recommended install path is `uv tool install` against the GitHub
+release. The previous shell-installer scripts (`scripts/install-package.sh`
+and `scripts/deploy-package.sh`) still work for one minor version with a
+deprecation warning, but they will be removed in v0.7.0.
 
-### Option 1 — deploy bundle from the GitHub Release (recommended)
+### Option 1 — `uv tool install` (recommended)
 
-Every release attaches an `llm-reviewer-deploy-X.Y.Z.tar.gz` bundle
-containing the full deployable tree (cosign-signed, with `.pem` + `.sig`
-sidecars).
+Single command, isolated venv managed by uv, entry points placed on
+`PATH`. Then `llm-reviewer init` handles per-host configuration:
 
 ```sh
-version=0.5.1
-curl -LO "https://github.com/mountainowl/ai-code-review/releases/download/v${version}/llm-reviewer-deploy-${version}.tar.gz"
-tar -xzf "llm-reviewer-deploy-${version}.tar.gz"
-cd "llm-reviewer-${version}"
-./scripts/install-package.sh
+# Install the latest tagged release.
+uv tool install git+https://github.com/mountainowl/ai-code-review@v0.6.0
+
+# Place ~/.codex/config.toml, ~/.claude/settings.json, config/env.toml seed,
+# the var/ workspace, prompts, skills, plugins, and initialize the SQLite DB.
+llm-reviewer init
+
+# Verify — non-zero exit on any missing piece. Suitable for cron / monitoring.
+llm-reviewer doctor
 ```
 
-Pass `--install-agent-config` on the first install to write the Codex
-profile and Claude settings, then drop the flag on subsequent upgrades
-to avoid clobbering local agent-config tweaks.
+`llm-reviewer init` supports:
 
-### Option 2 — clone the repo
+| Flag | Effect |
+|---|---|
+| `--dry-run` | print every action it would take without touching disk |
+| `--force` | overwrite existing `config/env.toml`, `~/.codex/config.toml`, `~/.claude/settings.json` (clobbers operator edits) |
+| `--no-agent-config` | skip the `~/.codex/` and `~/.claude/` writes (for hosts that already have a hand-rolled agent config) |
+| `--root PATH` | install under `PATH` instead of the default `$LLM_CODE_REVIEW_ROOT` or `~/.local/share/llm-reviewer` |
+
+To upgrade, re-run `uv tool install` against the new tag:
+
+```sh
+uv tool install --reinstall git+https://github.com/mountainowl/ai-code-review@v0.6.1
+llm-reviewer init     # idempotent — re-applies packaged template updates
+llm-reviewer doctor
+```
+
+### Option 2 — pipx (functionally equivalent)
+
+For hosts that don't have uv but already use pipx:
+
+```sh
+pipx install git+https://github.com/mountainowl/ai-code-review@v0.6.0
+llm-reviewer init
+```
+
+### Option 3 (deprecated) — shell installer
+
+Still works in v0.6.x but prints a deprecation warning on every run. Will
+be removed in v0.7.0:
 
 ```sh
 git clone https://github.com/mountainowl/ai-code-review.git
 cd ai-code-review
-git checkout v0.5.1                    # or whatever the latest tag is
+git checkout v0.6.0
 ./scripts/install-package.sh --install-agent-config
-```
-
-### Remote host
-
-```sh
-./scripts/deploy-package.sh user@host
-# or
-./scripts/deploy-package.sh user@host --root /opt/llm-reviewer --sudo --install-agent-config
 ```
 
 ### Local development

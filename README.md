@@ -58,15 +58,15 @@ Codex/Claude agent — see [prerequisites](docs/prerequisites.md) for the
 copy-paste blocks), then:
 
 ```sh
-git clone https://github.com/mountainowl/ai-code-review.git
-cd ai-code-review
-./scripts/install-package.sh
+uv tool install git+https://github.com/mountainowl/ai-code-review@v0.6.0
+llm-reviewer init                # idempotent; --dry-run to preview
 
-cp config/env.example.toml config/env.toml
-# Edit config/env.toml: set [gitlab].token, [agents].llm_api_key,
-# [agents].llm_model, and at least one [[projects]] entry.
+# Edit ~/.local/share/llm-reviewer/config/env.toml:
+#   [gitlab].token, [agents].llm_api_key, [agents].llm_model,
+#   and at least one [[projects]] entry.
 
-uv run mr-review-poller          # one poll cycle; exits at the end
+llm-reviewer doctor              # verify before first poll
+mr-review-poller                 # one poll cycle; exits at the end
 ```
 
 The first cycle runs with `[review].dry_run = true` (the default) — findings
