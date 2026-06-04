@@ -194,6 +194,33 @@ def _plan_packaged_runtime_copies(root: Path) -> list[Action]:
     ]
 
 
+def _plan_deploy_templates(root: Path) -> list[Action]:
+    """Drop rendered cron / systemd templates at ``$ROOT/deploy/templates/``.
+
+    These files carry a ``{{ROOT}}`` placeholder that has to point at the
+    actual install path before they're useful to ``sudo install`` /
+    ``systemctl enable``. Rendering them here keeps the operate docs
+    pointing at a single discoverable location (``$ROOT/deploy/templates/``)
+    instead of asking operators to dig into ``importlib.resources`` for
+    the bundled originals.
+    """
+    target_dir = root / "deploy" / "templates"
+    templates = (
+        "llm-reviewer.cron",
+        "llm-reviewer.service",
+        "llm-reviewer.timer",
+    )
+    return [
+        Action(
+            kind="write_file",
+            target=target_dir / name,
+            source=(name,),
+            note=f"render {{{{ROOT}}}} = {root}; install with sudo when scheduling",
+        )
+        for name in templates
+    ]
+
+
 def _plan_agent_config(home: Path, root: Path, force: bool) -> list[Action]:
     """``~/.codex/config.toml`` and ``~/.claude/settings.json`` from templates."""
     codex_target = home / ".codex" / "config.toml"
@@ -250,6 +277,7 @@ def plan_init(
     actions.extend(_plan_workspace(root))
     actions.extend(_plan_env_seed(root, force))
     actions.extend(_plan_packaged_runtime_copies(root))
+    actions.extend(_plan_deploy_templates(root))
     if install_agent_config:
         actions.extend(_plan_agent_config(home, root, force))
     actions.append(

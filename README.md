@@ -120,7 +120,7 @@ in the configured CLI skill.
 | Doc | What's in it |
 |---|---|
 | [Prerequisites](docs/prerequisites.md) | macOS / Linux runtime, per-provider tools, credentials, install verification. |
-| [Install and configure](docs/install-and-configure.md) | `install-package.sh`, the minimum `config/env.toml`, GitLab and GitHub bot setup. |
+| [Install and configure](docs/install-and-configure.md) | `uv tool install`, `llm-reviewer init`, the minimum `config/env.toml`, GitLab and GitHub bot setup. |
 | [Run](docs/run.md) | One-off review, the GitLab poller, the bundled `mcp-llm-reviewer` MCP server (three deployment patterns) and upstream wrappers. |
 | [Configuration reference](docs/configuration.md) | Every `[scm]` / `[gitlab]` / `[github]` / `[review]` / `[poller]` / `[agents]` / `[telemetry]` / `[[projects]]` setting and its default. |
 | [Operate](docs/operate.md) | Remote deploy, scheduling under cron or systemd, `--sync-outcomes` grading, one-shot backfill. |
