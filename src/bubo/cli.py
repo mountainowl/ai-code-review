@@ -90,7 +90,10 @@ def _asset(*parts: str) -> Traversable | Path:
             root = root / part
         if root.is_file() or root.is_dir():
             return root
-    except ModuleNotFoundError, FileNotFoundError:
+    except (ModuleNotFoundError, FileNotFoundError):
+        # Editable install: the packaged `_assets/` subpackage doesn't exist
+        # on disk (hatchling force-includes it only into the built wheel), so
+        # resolution falls through to the repo-root fallback below.
         pass
     fallback = _EDITABLE_FALLBACKS.get(parts)
     if fallback is not None:
