@@ -24,8 +24,8 @@ for, it stays silent until it has something worth saying.
 site; this README is a teaser.
 
 👉 New here? The **[Recipes](https://mountainowl.github.io/bubo/recipes/)**
-([docs/recipes.md](docs/recipes.md)) are copy-paste, follow-verbatim setups for
-Codex on GitLab and GitHub.
+([docs/recipes.md](docs/recipes.md)) are copy-paste setups for GitLab and
+GitHub — using Codex (the bundled default) or Claude as the review agent.
 
 ## What a review looks like
 
@@ -98,7 +98,9 @@ plain Markdown in the repo:
 - **GitLab & GitHub posting via polling** — production path, at outcome-metric
   parity. Set `[scm].provider = "github"` (or run `bubo-gh-poller`).
 - **MCP server (`bubo-mcp`)** — read-only metrics + triggered reviews; stdio or HTTP.
-- **Codex (OpenAI)** is the turnkey review agent today; a **Claude** runner is in progress.
+- **Bring your own agent** — the review runs through the CLI you set in
+  `[agents].reviewer_command`; **Codex** ships as the bundled default and
+  **Claude** (`claude -p`) is a drop-in alternative.
 - **Webhook-driven triggering** — not implemented; polling is the only path.
 
 Review execution is intentionally outside CI/CD. Run it as a poller beside your existing pipelines.
