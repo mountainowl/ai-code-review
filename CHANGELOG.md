@@ -11,6 +11,22 @@ production tag (`0.1.0`) cuts everything currently under "Unreleased".
 ## [Unreleased]
 
 ### Added
+- **Opt-in governance rigor modulation + policy gates (Phase 2).** Builds on
+  provenance capture. Two advisory, off-by-default capabilities that *use* the
+  captured signal: (1) `[governance].rigor_modulation` injects a
+  heightened-scrutiny directive (prioritize the security lens) into the review
+  prompt of a change that **escalates**; (2) `[governance].policy_mode`
+  (`off`/`report-only`/`soft`) records an auditable, **write-once** governance
+  *decision* per change (`flag`/`clear`) in a new `governance_decisions` table,
+  surfaced as a `governance_decision` log event + `llm_review.governance`
+  metric and queryable for audit. Escalation uses one shared predicate —
+  band ∈ `escalate_bands` (default `likely_ai`+`collaborative`; `unknown` never
+  escalates) and, unless `rigor_require_sensitive = false`, a
+  `sensitive_path_globs` hit. Enabling either auto-implies the provenance fetch.
+  **All advisory** — there is no `enforce` mode; bubo cannot block a merge. New
+  pure `bubo.governance_policy` module. See
+  [docs/configuration.md](docs/configuration.md), "Phase 2 — rigor modulation &
+  policy gates".
 - **Opt-in AI-code provenance capture (governance).** For regulated/enterprise
   teams, bubo can now record a per-change **provenance signal** for audit —
   self-hosted, so the data never leaves your infrastructure. Gated behind

@@ -15,7 +15,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from bubo.config_values import bool_value, section, string_list
+from bubo.config_values import bool_value, lower_string_list, one_of, section, string_list
+from bubo.governance_policy import POLICY_OFF, POLICY_REPORT_ONLY, POLICY_SOFT
+from bubo.provenance import BAND_COLLABORATIVE, BAND_LIKELY_AI
+
+# Policy modes accepted by ``[governance].policy_mode`` (validated on parse).
+POLICY_MODES = (POLICY_OFF, POLICY_REPORT_ONLY, POLICY_SOFT)
+
+# Default bands that escalate (trigger rigor modulation / a policy flag). The
+# two AI-implicated bands; ``unknown`` deliberately never escalates.
+DEFAULT_ESCALATE_BANDS = (BAND_LIKELY_AI, BAND_COLLABORATIVE)
 
 # Default commit-trailer patterns that DECLARE AI assistance. Case-insensitive
 # regexes matched against individual commit-message lines (see
@@ -53,7 +62,29 @@ class GovernanceConfig:
     sensitive_path_globs:
         ``fnmatch`` globs (case-preserving) flagged on a change's changed
         paths — e.g. ``payments/**``, ``*.pem``. Empty (default) = off; each
-        org sets its own. Recorded for audit; no behavior change in Phase 1.
+        org sets its own. Recorded for audit and used as the sensitive-path
+        half of the escalation predicate (Phase 2).
+    rigor_modulation:
+        Phase 2 capability 1. When ``True``, an escalated change (see
+        ``escalate_bands`` / ``rigor_require_sensitive``) injects a
+        heightened-scrutiny directive into the per-change review prompt.
+        **Off by default.** Advisory only — it adds prompt context, never a
+        verdict, and never blocks a merge.
+    escalate_bands:
+        Provenance bands that escalate (shared by rigor modulation and the
+        policy gate). Defaults to ``likely_ai`` + ``collaborative``;
+        ``unknown`` never escalates.
+    rigor_require_sensitive:
+        When ``True`` (default) a change escalates only if it ALSO touches a
+        ``sensitive_path_globs`` path; when ``False`` an escalating band alone
+        suffices.
+    policy_mode:
+        Phase 2 capability 2: ``off`` (default) / ``report-only`` / ``soft``.
+        When not ``off``, an auditable governance decision is recorded per
+        change. All modes are advisory — bubo cannot block a merge — so
+        ``soft`` differs from ``report-only`` only by also allowing rigor
+        injection to be reflected in the decision. (No ``enforce`` mode
+        exists: bubo does not own CI/branch protection.)
     """
 
     capture_provenance: bool = False
@@ -61,6 +92,25 @@ class GovernanceConfig:
         default_factory=lambda: list(DEFAULT_AI_TRAILER_PATTERNS)
     )
     sensitive_path_globs: list[str] = field(default_factory=list)
+    rigor_modulation: bool = False
+    escalate_bands: list[str] = field(default_factory=lambda: list(DEFAULT_ESCALATE_BANDS))
+    rigor_require_sensitive: bool = True
+    policy_mode: str = POLICY_OFF
+
+    @property
+    def enabled(self) -> bool:
+        """True if any governance capability needs the per-change commit fetch.
+
+        The poller gates the commit/diff fetch on this, so enabling rigor
+        modulation or a policy mode auto-implies provenance computation even
+        when ``capture_provenance`` is left ``False`` (a reasonable config, not
+        a mistake — the fetch is what all three capabilities depend on).
+        """
+        return (
+            self.capture_provenance
+            or self.rigor_modulation
+            or self.policy_mode != POLICY_OFF
+        )
 
 
 def governance_config_from_dict(raw: dict[str, Any]) -> GovernanceConfig:
@@ -82,11 +132,29 @@ def governance_config_from_dict(raw: dict[str, Any]) -> GovernanceConfig:
             governance.get("sensitive_path_globs", []),
             "sensitive_path_globs",
         ),
+        rigor_modulation=bool_value(
+            governance.get("rigor_modulation"), "rigor_modulation", default=False
+        ),
+        escalate_bands=(
+            list(DEFAULT_ESCALATE_BANDS)
+            if governance.get("escalate_bands") is None
+            else lower_string_list(governance.get("escalate_bands"), "escalate_bands")
+        ),
+        rigor_require_sensitive=bool_value(
+            governance.get("rigor_require_sensitive"),
+            "rigor_require_sensitive",
+            default=True,
+        ),
+        policy_mode=one_of(
+            governance.get("policy_mode"), "policy_mode", POLICY_MODES, default=POLICY_OFF
+        ),
     )
 
 
 __all__ = [
     "DEFAULT_AI_TRAILER_PATTERNS",
+    "DEFAULT_ESCALATE_BANDS",
+    "POLICY_MODES",
     "GovernanceConfig",
     "governance_config_from_dict",
 ]

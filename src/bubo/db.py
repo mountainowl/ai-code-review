@@ -28,9 +28,11 @@ import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from bubo import paths
 from bubo.events import now
+from bubo.governance_policy import GovernanceDecision
 from bubo.hash_utils import stable_digest, stable_hash
 from bubo.provenance import ProvenanceSignal
 from bubo.statuses import FindingStatus, ReviewMode, ReviewStatus
@@ -186,6 +188,29 @@ def init_db() -> None:
         )
         # Additive migration for DBs created before reply_classified existed.
         ensure_column(db, "finding_outcomes", "reply_classified", "integer not null default 0")
+        # Governance policy decisions (opt-in, off by default) — one advisory,
+        # write-once decision per change. Separate table from review_runs: a
+        # decision is a policy *artifact about* the run's provenance, with its
+        # own lifecycle. See record_governance_decision / bubo.governance_policy.
+        db.execute(
+            """
+            create table if not exists governance_decisions (
+              run_id text primary key,
+              project text not null,
+              iid integer not null,
+              sha text not null,
+              mode text not null,
+              action text not null,
+              triggered integer not null,
+              matched_rule text,
+              rigor_injected integer not null default 0,
+              band text,
+              sensitive_paths text,
+              reason text,
+              created_at text not null
+            )
+            """
+        )
 
 
 def ensure_column(db: sqlite3.Connection, table: str, name: str, definition: str) -> None:
@@ -368,6 +393,114 @@ def provenance_for(run_id: str) -> JsonObject | None:
         "ai_signals": json.loads(row[3]) if row[3] else [],
         "sensitive_paths": json.loads(row[4]) if row[4] else [],
     }
+
+
+def _governance_decision_row(
+    project: str, iid: int, sha: str, row: tuple[Any, ...]
+) -> JsonObject:
+    """Shape a ``governance_decisions`` row tuple into the public JSON dict."""
+    return {
+        "run_id": row[0],
+        "project": project,
+        "iid": iid,
+        "sha": sha,
+        "mode": row[1],
+        "action": row[2],
+        "triggered": bool(row[3]),
+        "matched_rule": row[4],
+        "rigor_injected": bool(row[5]),
+        "band": row[6],
+        "sensitive_paths": json.loads(row[7]) if row[7] else [],
+        "reason": row[8],
+        "created_at": row[9],
+    }
+
+
+def record_governance_decision(
+    run_id: str,
+    *,
+    project: str,
+    iid: int,
+    sha: str,
+    decision: GovernanceDecision,
+) -> None:
+    """Persist an advisory governance decision — write-once (audit integrity).
+
+    ``insert ... on conflict(run_id) do nothing`` so a retried worker never
+    rewrites an existing decision; the first decision for a run is the record
+    of truth. ``sensitive_paths`` is stored as JSON text.
+    """
+    with connect_db() as db:
+        db.execute(
+            """
+            insert into governance_decisions(
+              run_id,project,iid,sha,mode,action,triggered,matched_rule,
+              rigor_injected,band,sensitive_paths,reason,created_at
+            )
+            values(?,?,?,?,?,?,?,?,?,?,?,?,?)
+            on conflict(run_id) do nothing
+            """,
+            (
+                run_id,
+                project,
+                iid,
+                sha,
+                decision.mode,
+                decision.action,
+                int(decision.triggered),
+                decision.matched_rule,
+                int(decision.rigor_injected),
+                decision.band,
+                json.dumps(decision.sensitive_paths),
+                decision.reason,
+                now(),
+            ),
+        )
+
+
+def governance_decision_for(run_id: str) -> JsonObject | None:
+    """Return the governance decision for ``run_id``, or ``None`` if absent."""
+    with connect_db() as db:
+        row = db.execute(
+            """
+            select run_id,mode,action,triggered,matched_rule,rigor_injected,
+                   band,sensitive_paths,reason,created_at
+            from governance_decisions where run_id=?
+            """,
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        meta = db.execute(
+            "select project,iid,sha from governance_decisions where run_id=?",
+            (run_id,),
+        ).fetchone()
+    return _governance_decision_row(str(meta[0]), int(meta[1]), str(meta[2]), row)
+
+
+def governance_decisions_for(
+    project: str, iid: int, sha: str | None = None
+) -> list[JsonObject]:
+    """Return governance decisions for an MR/PR (keyed like findings_for/outcomes_for).
+
+    When ``sha`` is ``None`` the most-recent reviewed SHA is resolved via
+    :func:`_resolve_sha` so this reader agrees with the others on "current".
+    """
+    with connect_db() as db:
+        target_sha = sha if sha is not None else _resolve_sha(db, project, iid)
+        if target_sha is None:
+            return []
+        rows = db.execute(
+            """
+            select run_id,mode,action,triggered,matched_rule,rigor_injected,
+                   band,sensitive_paths,reason,created_at
+            from governance_decisions
+            where project=? and iid=? and sha=?
+            order by created_at asc
+            """,
+            (project, iid, target_sha),
+        ).fetchall()
+    return [_governance_decision_row(project, iid, target_sha, row) for row in rows]
 
 
 def record(
@@ -1002,6 +1135,8 @@ __all__ = [
     "finding_seen",
     "findings_for",
     "get_review_row",
+    "governance_decision_for",
+    "governance_decisions_for",
     "init_db",
     "init_dirs",
     "latest_reviewed_row",
@@ -1015,6 +1150,7 @@ __all__ = [
     "record_finding",
     "record_finding_outcome",
     "record_finding_outcome_sync_attempt",
+    "record_governance_decision",
     "record_provenance",
     "record_review_run_finish",
     "record_review_run_start",
