@@ -148,6 +148,30 @@ class ReviewConfig:
         dispute rate is trusted enough to suppress. Guards against
         suppressing a whole class off one or two rejections. Only consulted
         when ``suppress_disputed_classes`` is ``True``.
+    downrank_disputed_classes:
+        When ``True``, the poller applies a *soft* confidence penalty to
+        findings whose ``category`` a team disputes, scaled by how often the
+        team rejects that class — the graduated counterpart to the binary
+        ``suppress_disputed_classes``. Composes with suppression: suppress
+        owns the egregious classes, down-rank nudges the moderate ones.
+        **Off by default.** Unlike suppression it keeps the signal live —
+        high-confidence findings still leak through, so fresh accept/dispute
+        data keeps accruing and the rate can self-correct. See
+        :func:`bubo.db.disputed_finding_class_rates` and
+        ``docs/configuration.md``.
+    dispute_downrank_min_samples:
+        Minimum recorded outcomes in a category before its dispute rate is
+        trusted enough to down-rank. Only consulted when
+        ``downrank_disputed_classes`` is ``True``.
+    dispute_downrank_max_penalty:
+        Maximum confidence subtracted from a finding, reached at a 100%
+        dispute rate; the penalty applied is ``max_penalty * dispute_rate``.
+        The model's reported confidence is never mutated — the penalty only
+        adjusts the keep/drop decision against ``min_confidence``. Default
+        ``0.1``. Keep it **below** your ``min_confidence`` headroom
+        (``1 - min_confidence``) or down-rank degenerates into hard
+        suppression for high-dispute classes. Only consulted when
+        ``downrank_disputed_classes`` is ``True``.
     post_no_findings_comment:
         When ``True`` (the default), the poller posts a single change-level
         comment after a review completes with zero actionable findings, so
@@ -184,6 +208,9 @@ class ReviewConfig:
     suppress_disputed_classes: bool = False
     dispute_suppress_threshold: float = 0.5
     dispute_suppress_min_samples: int = 5
+    downrank_disputed_classes: bool = False
+    dispute_downrank_min_samples: int = 5
+    dispute_downrank_max_penalty: float = 0.1
     post_no_findings_comment: bool = True
     no_findings_comment_body: str = DEFAULT_NO_FINDINGS_COMMENT
 
@@ -290,6 +317,19 @@ def review_config_from_dict(
         dispute_suppress_min_samples=positive_int(
             review.get("dispute_suppress_min_samples", 5),
             "dispute_suppress_min_samples",
+        ),
+        downrank_disputed_classes=bool_value(
+            review.get("downrank_disputed_classes"),
+            "downrank_disputed_classes",
+            default=False,
+        ),
+        dispute_downrank_min_samples=positive_int(
+            review.get("dispute_downrank_min_samples", 5),
+            "dispute_downrank_min_samples",
+        ),
+        dispute_downrank_max_penalty=confidence_threshold(
+            review.get("dispute_downrank_max_penalty", 0.1),
+            "dispute_downrank_max_penalty",
         ),
         post_no_findings_comment=bool_value(
             agent.get("post_no_findings_comment"),

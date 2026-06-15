@@ -134,6 +134,81 @@ class InlineReviewTests(unittest.TestCase):
         self.assertEqual(["a", "b"], [f["title"] for f in kept])
         self.assertEqual([], dropped)
 
+    def test_filter_findings_by_policy_downranks_disputed_category(self):
+        from bubo.findings import filter_findings_by_policy
+
+        findings = [
+            # Penalty 0.1 pushes 0.90 -> 0.80 < 0.85 -> dropped.
+            {"category": "documentation", "confidence": 0.90, "title": "borderline doc"},
+            # High confidence still leaks through (0.99 -> 0.89 >= 0.85) -- the
+            # property that keeps the class generating fresh outcome data.
+            {"category": "Documentation ", "confidence": 0.99, "title": "strong doc"},
+            # Un-penalized class is untouched.
+            {"category": "security", "confidence": 0.86, "title": "real bug"},
+            # No category -> never penalized.
+            {"severity": "blocking", "confidence": 0.86, "title": "no category"},
+        ]
+
+        kept, dropped = filter_findings_by_policy(
+            findings,
+            min_confidence=0.85,
+            downrank_penalties={"documentation": 0.1},
+        )
+
+        self.assertEqual(
+            ["strong doc", "real bug", "no category"], [f["title"] for f in kept]
+        )
+        dropped_reasons = {f["title"]: reason for f, reason in dropped}
+        self.assertEqual({"borderline doc": "disputed_class_downranked"}, dropped_reasons)
+
+    def test_filter_findings_by_policy_downrank_below_raw_confidence_keeps_raw_reason(self):
+        from bubo.findings import filter_findings_by_policy
+
+        # A finding already below min_confidence on its own merits is dropped
+        # as confidence_below_threshold -- down-rank is not blamed for it.
+        findings = [{"category": "documentation", "confidence": 0.50, "title": "weak doc"}]
+
+        _, dropped = filter_findings_by_policy(
+            findings,
+            min_confidence=0.85,
+            downrank_penalties={"documentation": 0.1},
+        )
+
+        self.assertEqual([("weak doc", "confidence_below_threshold")],
+                         [(f["title"], reason) for f, reason in dropped])
+
+    def test_filter_findings_by_policy_suppress_wins_over_downrank(self):
+        from bubo.findings import filter_findings_by_policy
+
+        # When both modes target the same class, the hard suppression wins
+        # the drop reason -- this pins the suppress-first ordering.
+        findings = [{"category": "documentation", "confidence": 0.99, "title": "doc"}]
+
+        _, dropped = filter_findings_by_policy(
+            findings,
+            min_confidence=0.85,
+            suppressed_categories=["documentation"],
+            downrank_penalties={"documentation": 0.1},
+        )
+
+        self.assertEqual([("doc", "disputed_class_suppressed")],
+                         [(f["title"], reason) for f, reason in dropped])
+
+    def test_filter_findings_by_policy_empty_downrank_is_no_filter(self):
+        from bubo.findings import filter_findings_by_policy
+
+        findings = [
+            {"category": "documentation", "confidence": 0.86, "title": "a"},
+            {"category": "security", "confidence": 0.86, "title": "b"},
+        ]
+
+        kept, dropped = filter_findings_by_policy(
+            findings, min_confidence=0.85, downrank_penalties={}
+        )
+
+        self.assertEqual(["a", "b"], [f["title"] for f in kept])
+        self.assertEqual([], dropped)
+
     def test_review_config_parses_dispute_suppression_settings(self):
         from bubo.review_config import review_config_from_dict
 
@@ -160,6 +235,34 @@ class InlineReviewTests(unittest.TestCase):
         self.assertFalse(cfg.suppress_disputed_classes)
         self.assertEqual(0.5, cfg.dispute_suppress_threshold)
         self.assertEqual(5, cfg.dispute_suppress_min_samples)
+
+    def test_review_config_parses_dispute_downrank_settings(self):
+        from bubo.review_config import review_config_from_dict
+
+        cfg = review_config_from_dict(
+            {
+                "review": {
+                    "downrank_disputed_classes": True,
+                    "dispute_downrank_min_samples": 8,
+                    "dispute_downrank_max_penalty": 0.2,
+                }
+            }
+        )
+
+        self.assertTrue(cfg.downrank_disputed_classes)
+        self.assertEqual(8, cfg.dispute_downrank_min_samples)
+        self.assertEqual(0.2, cfg.dispute_downrank_max_penalty)
+
+    def test_review_config_dispute_downrank_defaults_off(self):
+        from bubo.review_config import review_config_from_dict
+
+        cfg = review_config_from_dict({})
+
+        # Off by default; the conservative default penalty stays below the
+        # 0.85 min_confidence headroom so down-rank never hard-suppresses.
+        self.assertFalse(cfg.downrank_disputed_classes)
+        self.assertEqual(5, cfg.dispute_downrank_min_samples)
+        self.assertEqual(0.1, cfg.dispute_downrank_max_penalty)
 
     def test_extract_json_findings_from_plain_array(self):
         raw = json.dumps(

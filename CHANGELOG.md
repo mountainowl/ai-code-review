@@ -11,6 +11,23 @@ production tag (`0.1.0`) cuts everything currently under "Unreleased".
 ## [Unreleased]
 
 ### Added
+- **Opt-in dispute-driven down-ranking (soft mode).** The graduated
+  counterpart to suppression: `[review].downrank_disputed_classes` (default
+  `false`) subtracts a confidence penalty — `dispute_downrank_max_penalty ×
+  dispute_rate`, default max `0.1` — from findings in disputed categories
+  instead of dropping the class outright, keeping a finding only if
+  `confidence − penalty ≥ min_confidence`. The model's reported confidence is
+  never rewritten; the penalty affects only the keep/post decision, logged as
+  `disputed_class_downranked` with the applied `downrank_penalty`. It composes
+  with suppression (suppression owns egregious classes, down-rank nudges
+  moderate ones; suppression wins when both fire) and, unlike suppression,
+  keeps the signal live — high-confidence findings still post, so the dispute
+  rate can self-correct instead of freezing. Both modes share one per-repo
+  rate aggregation (`bubo.db.disputed_finding_class_rates`). Keep
+  `dispute_downrank_max_penalty` below your `1 − min_confidence` headroom or
+  it degenerates into hard suppression — see
+  [docs/configuration.md](docs/configuration.md), "Dispute-driven
+  suppression → Soft mode: down-ranking".
 - **Opt-in dispute-driven noise suppression.** Bubo already records, per
   finding, whether the developer accepted or disputed it. The new
   `[review].suppress_disputed_classes` flag (default `false`) turns that

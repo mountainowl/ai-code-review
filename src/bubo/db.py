@@ -620,39 +620,30 @@ def posted_findings_for_outcome_sync(limit: int = 200) -> list[JsonObject]:
     ]
 
 
-def disputed_finding_classes(
-    project: str,
-    *,
-    min_samples: int,
-    threshold: float,
-) -> set[str]:
-    """Return the set of finding categories this repo repeatedly rejects.
+def disputed_finding_class_rates(project: str, *, min_samples: int) -> dict[str, float]:
+    """Return ``{category: dispute_rate}`` for this repo's finding categories.
 
-    Powers the opt-in dispute-driven suppression filter
-    (``[review].suppress_disputed_classes``). For ``project``, it joins
-    ``finding_outcomes`` to ``review_findings`` on the composite finding id,
-    groups by normalized ``category``, and returns every category whose
-    dispute rate clears ``threshold`` once at least ``min_samples`` outcomes
-    have accrued.
+    The shared aggregation behind *both* dispute-driven modes — hard
+    suppression (:func:`disputed_finding_classes`) and soft down-ranking
+    (``[review].downrank_disputed_classes``). Keeping a single source of
+    truth means the two modes can never disagree about a category's rate.
+
+    For ``project``, it joins ``finding_outcomes`` to ``review_findings`` on
+    the composite finding id, groups by normalized ``category``, and returns
+    every category with at least ``min_samples`` recorded outcomes, mapped to
+    its dispute rate in ``[0.0, 1.0]``.
 
     Dispute rate is ``count(disputed OR false_positive) / count(outcomes)``
     for the category. The denominator is *all* outcome rows for the
     category, including ones written by
     :func:`record_finding_outcome_sync_attempt` on a sync failure (which
     carry ``disputed=0, false_positive=0``). That deliberately dilutes the
-    rate — the bias is toward **under**-suppressing, so a real finding class
-    is never silenced off a thin or noisy signal.
+    rate — the bias is toward **under**-reacting, so a real finding class is
+    never penalized off a thin or noisy signal.
 
     Categories are normalized with ``lower(trim(...))`` here and must be
     matched the same way at the call site
     (:func:`bubo.findings.filter_findings_by_policy`).
-
-    Note: suppression is self-reinforcing — a suppressed category stops
-    producing new ``review_findings`` / ``finding_outcomes`` rows, so its
-    rate is frozen at the pre-suppression snapshot. The escape hatches are
-    operator-side: raise ``threshold`` / ``min_samples`` or disable the
-    flag. This is documented as a known limitation in
-    ``docs/configuration.md``.
     """
     with connect_db() as db:
         rows = db.execute(
@@ -673,9 +664,40 @@ def disputed_finding_classes(
             (project,),
         ).fetchall()
     return {
-        str(category)
+        str(category): rejected / total
         for category, total, rejected in rows
-        if total >= min_samples and (rejected / total) >= threshold
+        if total >= min_samples
+    }
+
+
+def disputed_finding_classes(
+    project: str,
+    *,
+    min_samples: int,
+    threshold: float,
+) -> set[str]:
+    """Return the set of finding categories this repo repeatedly rejects.
+
+    Powers the opt-in dispute-driven suppression filter
+    (``[review].suppress_disputed_classes``). Built on
+    :func:`disputed_finding_class_rates`: a category is suppressed when its
+    dispute rate clears ``threshold`` once at least ``min_samples`` outcomes
+    have accrued. See that function for how the rate is computed (and why the
+    denominator is deliberately diluted toward under-reacting).
+
+    Note: suppression is self-reinforcing — a suppressed category stops
+    producing new ``review_findings`` / ``finding_outcomes`` rows, so its
+    rate is frozen at the pre-suppression snapshot. The escape hatches are
+    operator-side: raise ``threshold`` / ``min_samples``, switch to soft
+    down-ranking (which keeps the signal live), or disable the flag. This is
+    documented as a known limitation in ``docs/configuration.md``.
+    """
+    return {
+        category
+        for category, rate in disputed_finding_class_rates(
+            project, min_samples=min_samples
+        ).items()
+        if rate >= threshold
     }
 
 
@@ -927,6 +949,7 @@ __all__ = [
     "already_seen",
     "connect_db",
     "count_inflight_workers",
+    "disputed_finding_class_rates",
     "disputed_finding_classes",
     "ensure_column",
     "finding_seen",

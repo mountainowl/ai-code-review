@@ -178,6 +178,34 @@ def test_suppression_is_scoped_per_project() -> None:
     assert suppressed_b == set()
 
 
+def test_class_rates_returns_dispute_rate_per_class() -> None:
+    with _temp_db():
+        # documentation: 3/5 disputed = 0.6; security: 1/5 = 0.2.
+        for i in range(3):
+            _seed_finding(project="g/r", category="documentation", index=i, disputed=True)
+        for i in range(3, 5):
+            _seed_finding(project="g/r", category="documentation", index=i)
+        _seed_finding(project="g/r", category="security", index=0, disputed=True)
+        for i in range(1, 5):
+            _seed_finding(project="g/r", category="security", index=i)
+
+        rates = db.disputed_finding_class_rates("g/r", min_samples=5)
+
+    assert rates == {"documentation": 0.6, "security": 0.2}
+
+
+def test_class_rates_omits_classes_below_min_samples() -> None:
+    with _temp_db():
+        # Only 3 outcomes -> below min_samples=5, omitted entirely (so no
+        # penalty is ever derived from a thin signal).
+        for i in range(3):
+            _seed_finding(project="g/r", category="performance", index=i, disputed=True)
+
+        rates = db.disputed_finding_class_rates("g/r", min_samples=5)
+
+    assert rates == {}
+
+
 def test_post_or_plan_does_not_consult_db_when_disabled() -> None:
     """Off by default: the disputed-class query must not even run.
 
@@ -210,9 +238,14 @@ def test_post_or_plan_does_not_consult_db_when_disabled() -> None:
         def build_position(self, *a, **k):
             return None  # forces SKIPPED, no real API calls
 
-    # The poller imports the symbol by name, so patch it on the poller module.
+    # The poller imports the symbols by name, so patch them on the poller
+    # module. With both flags off, neither dispute query may run.
     with _temp_db(), patch.object(
         poller, "disputed_finding_classes", side_effect=AssertionError("must not be consulted")
+    ), patch.object(
+        poller,
+        "disputed_finding_class_rates",
+        side_effect=AssertionError("must not be consulted"),
     ):
         posted, planned, skipped = poller.post_or_plan_findings(
             cfg=cfg,
@@ -296,3 +329,141 @@ def test_post_or_plan_suppresses_a_disputed_class_when_enabled() -> None:
     ]
     assert len(filtered) == 1
     assert filtered[0].get("category") == "documentation"
+
+
+def test_post_or_plan_downranks_a_disputed_class_when_enabled() -> None:
+    """Enabled soft path: a borderline finding in a disputed class is dropped.
+
+    With down-rank on and a documentation class at a 0.6 dispute rate, the
+    penalty (0.1 * 0.6 = 0.06) pushes a 0.90-confidence finding to 0.84 —
+    just under the 0.85 floor — so it is filtered out before any API call and
+    logged with reason `disputed_class_downranked` plus the applied penalty.
+    """
+    from bubo import poller
+    from bubo.review_config import ReviewConfig
+
+    cfg = ReviewConfig(
+        dry_run=True,
+        downrank_disputed_classes=True,
+        dispute_downrank_min_samples=5,
+        dispute_downrank_max_penalty=0.1,
+    )
+    raw_review = (
+        '[{"category": "documentation", "file": "f.py", "line": 1, '
+        '"confidence": 0.90, "title": "doc nit", "type": "issue", '
+        '"severity": "non-blocking", "impact": "x", "evidence": "y", "fix": "z"}]'
+    )
+
+    class _Provider:
+        name = "gitlab"
+
+        def change_number(self, mr):
+            return mr["iid"]
+
+        def get_change(self, *a, **k):  # pragma: no cover - must not be reached
+            raise AssertionError("downranked finding must not reach change fetch")
+
+        def changed_lines(self, *a, **k):  # pragma: no cover - must not be reached
+            raise AssertionError("downranked finding must not reach diff fetch")
+
+        def build_position(self, *a, **k):  # pragma: no cover - must not be reached
+            raise AssertionError("downranked finding must not reach position mapping")
+
+    events: list[tuple[str, dict[str, object]]] = []
+
+    def _capture(event: str, **fields: object) -> None:
+        events.append((event, fields))
+
+    with _temp_db():
+        for i in range(3):
+            _seed_finding(project="g/r", category="documentation", index=i, disputed=True)
+        for i in range(3, 5):
+            _seed_finding(project="g/r", category="documentation", index=i)
+
+        with patch.object(poller, "log", _capture):
+            posted, planned, skipped = poller.post_or_plan_findings(
+                cfg=cfg,
+                token="t",
+                project="g/r",
+                mr={"iid": 1, "sha": "sha"},
+                raw_review=raw_review,
+                provider=_Provider(),
+            )
+
+    assert (posted, planned, skipped) == (0, 0, 0)
+    filtered = [
+        fields for name, fields in events
+        if name == "finding_filtered" and fields.get("reason") == "disputed_class_downranked"
+    ]
+    assert len(filtered) == 1
+    assert filtered[0].get("category") == "documentation"
+    # The applied penalty is surfaced for operator visibility.
+    assert filtered[0].get("downrank_penalty") == 0.1 * 0.6
+
+
+def test_post_or_plan_suppress_wins_over_downrank_when_both_enabled() -> None:
+    """Both modes on, class above the suppress threshold → suppress wins.
+
+    This is the integration-level guard for the suppress-first ordering: the
+    drop is attributed to `disputed_class_suppressed`, never the softer
+    `disputed_class_downranked`, even though both modes target the class.
+    """
+    from bubo import poller
+    from bubo.review_config import ReviewConfig
+
+    cfg = ReviewConfig(
+        dry_run=True,
+        suppress_disputed_classes=True,
+        dispute_suppress_min_samples=5,
+        dispute_suppress_threshold=0.5,
+        downrank_disputed_classes=True,
+        dispute_downrank_min_samples=5,
+        dispute_downrank_max_penalty=0.1,
+    )
+    raw_review = (
+        '[{"category": "documentation", "file": "f.py", "line": 1, '
+        '"confidence": 0.99, "title": "doc nit", "type": "issue", '
+        '"severity": "non-blocking", "impact": "x", "evidence": "y", "fix": "z"}]'
+    )
+
+    class _Provider:
+        name = "gitlab"
+
+        def change_number(self, mr):
+            return mr["iid"]
+
+        def get_change(self, *a, **k):  # pragma: no cover - must not be reached
+            raise AssertionError("suppressed finding must not reach change fetch")
+
+        def changed_lines(self, *a, **k):  # pragma: no cover - must not be reached
+            raise AssertionError("suppressed finding must not reach diff fetch")
+
+        def build_position(self, *a, **k):  # pragma: no cover - must not be reached
+            raise AssertionError("suppressed finding must not reach position mapping")
+
+    events: list[tuple[str, dict[str, object]]] = []
+
+    def _capture(event: str, **fields: object) -> None:
+        events.append((event, fields))
+
+    with _temp_db():
+        for i in range(3):
+            _seed_finding(project="g/r", category="documentation", index=i, disputed=True)
+        for i in range(3, 5):
+            _seed_finding(project="g/r", category="documentation", index=i)
+
+        with patch.object(poller, "log", _capture):
+            posted, planned, skipped = poller.post_or_plan_findings(
+                cfg=cfg,
+                token="t",
+                project="g/r",
+                mr={"iid": 1, "sha": "sha"},
+                raw_review=raw_review,
+                provider=_Provider(),
+            )
+
+    assert (posted, planned, skipped) == (0, 0, 0)
+    reasons = [
+        fields.get("reason") for name, fields in events if name == "finding_filtered"
+    ]
+    assert reasons == ["disputed_class_suppressed"]

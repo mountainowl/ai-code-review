@@ -107,6 +107,21 @@ credentials live in that one TOML file.
       <td><code>5</code></td>
       <td>Minimum recorded outcomes in a category before its dispute rate is acted on. Only consulted when <code>suppress_disputed_classes = true</code>.</td>
     </tr>
+    <tr>
+      <td><code>downrank_disputed_classes</code></td>
+      <td><code>false</code></td>
+      <td>Opt-in soft counterpart to suppression. When <code>true</code>, subtract a confidence penalty (proportional to the dispute rate) from findings in disputed categories instead of dropping the class outright. Composes with suppression. See <a href="#dispute-driven-suppression">Dispute-driven suppression</a> below.</td>
+    </tr>
+    <tr>
+      <td><code>dispute_downrank_min_samples</code></td>
+      <td><code>5</code></td>
+      <td>Minimum recorded outcomes in a category before its dispute rate is acted on. Only consulted when <code>downrank_disputed_classes = true</code>.</td>
+    </tr>
+    <tr>
+      <td><code>dispute_downrank_max_penalty</code></td>
+      <td><code>0.1</code></td>
+      <td>Maximum confidence subtracted (at a 100% dispute rate); the applied penalty is <code>max_penalty × dispute_rate</code>. Keep it below your <code>min_confidence</code> headroom (<code>1 − min_confidence</code>) or down-rank degenerates into hard suppression. Only consulted when <code>downrank_disputed_classes = true</code>.</td>
+    </tr>
     <tr><th colspan="3"><code>[poller]</code></th></tr>
     <tr>
       <td><code>state_dir</code></td>
@@ -286,6 +301,49 @@ Suppressed findings are dropped before posting and logged with reason
 `disputed_class_suppressed` (visible in the JSON log stream and the
 `finding_filtered` event), so an operator can always see what got swallowed.
 
+### Soft mode: down-ranking
+
+`suppress_disputed_classes` is binary — a category is either posted or gone.
+**Down-ranking** (`[review].downrank_disputed_classes`, also off by default)
+is the graduated alternative: instead of dropping a class, it subtracts a
+confidence penalty proportional to how often the team disputes it,
+
+```
+penalty = dispute_downrank_max_penalty × dispute_rate
+```
+
+and keeps the finding only if `confidence − penalty ≥ min_confidence`. The
+penalty is applied **only to the keep/post decision** — the model's reported
+confidence is never rewritten, and a finding that still clears the bar posts
+unchanged. A finding dropped solely because of the penalty is logged with
+reason `disputed_class_downranked` and the applied `downrank_penalty`; a
+finding that was already below `min_confidence` on its own is still logged as
+`confidence_below_threshold`, so the penalty is never blamed for it. Both
+modes draw on the same per-repo dispute rates (`min_samples`-gated), so they
+stay consistent.
+
+The two modes **compose**, and that composition is the point: with both on,
+suppression owns the egregious classes (rate above `dispute_suppress_threshold`)
+while down-ranking softly nudges the moderate ones below it. When a class
+trips both, suppression wins — the drop is reported as
+`disputed_class_suppressed`, not `disputed_class_downranked`.
+
+The reason to prefer down-ranking is that, unlike suppression, it **keeps the
+signal live**: high-confidence findings still leak through, so the class keeps
+producing accept/dispute data and its rate can self-correct rather than
+freeze (see the limitation below).
+
+That self-correction holds only while the penalty leaves a crack. Down-rank
+acts *through* the `min_confidence` gate, so a top-confidence finding survives
+only if `1.0 − penalty ≥ min_confidence` — i.e. only while
+`dispute_downrank_max_penalty < (1 − min_confidence)`. With the default
+`min_confidence = 0.85` the headroom is `0.15`, so the default
+`dispute_downrank_max_penalty = 0.1` always leaves a path through. Raise the
+penalty past that headroom and down-ranking **degenerates into hard
+suppression** for high-dispute classes (and re-acquires the freezing problem
+it exists to avoid). It is also inert when `min_confidence = 0.0`, because
+there is no bar for the penalty to push a finding under.
+
 ### Known limitation: suppression is self-reinforcing
 
 Once a category is suppressed, bubo stops posting it, so no new
@@ -296,6 +354,7 @@ caring about that class again. This is within the feature's intent (a class
 the team keeps rejecting should stay gone), but it is a conscious trade-off,
 not an accident. The escape hatches are all operator-side:
 
-- raise `dispute_suppress_threshold` or `dispute_suppress_min_samples`, or
+- raise `dispute_suppress_threshold` or `dispute_suppress_min_samples`,
+- switch to soft **down-ranking** (above), which keeps the signal live, or
 - set `suppress_disputed_classes = false` to re-post everything and rebuild
   fresh outcome history.

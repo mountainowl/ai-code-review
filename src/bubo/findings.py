@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from bubo.config_values import positive_int
 from bubo.hash_utils import stable_hash
@@ -137,30 +137,46 @@ def filter_findings_by_policy(
     min_confidence: float,
     allowed_kinds: Iterable[str] = (),
     suppressed_categories: Iterable[str] = (),
+    downrank_penalties: Mapping[str, float] | None = None,
 ) -> tuple[list[JsonObject], list[tuple[JsonObject, str]]]:
-    """Apply confidence, kind-whitelist, and dispute-suppression filters.
+    """Apply confidence, kind-whitelist, and dispute-driven policy filters.
 
-    Three filters are applied in order; the first one a finding fails wins
-    the drop reason:
+    Filters are applied in order; the first one a finding fails wins the
+    drop reason:
 
-    1. **Confidence:** drop any finding whose ``confidence`` is missing,
+    1. **Suppressed categories:** if ``suppressed_categories`` is non-empty,
+       drop any finding whose ``category`` (case-insensitive) is in the set.
+       This is the opt-in dispute-driven *hard* filter — the caller passes
+       the categories a team has repeatedly rejected on this repo (see
+       :func:`bubo.db.disputed_finding_classes`). Checked first because it is
+       an unconditional class-level removal: confidence is irrelevant once a
+       whole class is suppressed, and checking it first gives clean drop-
+       reason attribution when down-ranking is also enabled.
+    2. **Confidence:** drop any finding whose ``confidence`` is missing,
        not numeric, or strictly less than ``min_confidence``. Confidence
        values from the agent are floats in ``[0.0, 1.0]``; the threshold is
        inclusive on the high side so ``min_confidence=0.85`` accepts a
        finding scored exactly ``0.85``.
-    2. **Allowed kinds:** if ``allowed_kinds`` is non-empty, a finding must
+    3. **Down-rank:** if ``downrank_penalties`` maps the finding's
+       ``category`` to a penalty ``p``, the finding is kept only if
+       ``confidence - p >= min_confidence``. A finding that cleared the raw
+       confidence bar (step 2) but falls under it *after* the penalty is
+       dropped with reason ``"disputed_class_downranked"``. This is the soft,
+       graduated counterpart to suppression: high-confidence findings still
+       leak through, so the class keeps generating outcome data. The model's
+       reported ``confidence`` is **never mutated** — the penalty only
+       affects this keep/drop decision, and a kept finding still posts with
+       its original confidence. Note the penalty acts *through* the
+       confidence gate, so it is inert when ``min_confidence`` is ``0.0`` and
+       degenerates into hard suppression once ``p >= 1 - min_confidence``.
+    4. **Allowed kinds:** if ``allowed_kinds`` is non-empty, a finding must
        have **at least one** of its ``severity``, ``category``, or ``type``
        fields (case-insensitive) appear in the allowlist. An empty
-       ``allowed_kinds`` skips this filter entirely — "no whitelist
-       configured" means "allow all kinds that already passed
-       confidence".
-    3. **Suppressed categories:** if ``suppressed_categories`` is non-empty,
-       drop any finding whose ``category`` (case-insensitive) is in the set.
-       This is the opt-in dispute-driven noise filter — the caller passes
-       the categories a team has repeatedly rejected on this repo (see
-       :func:`bubo.db.disputed_finding_classes`). Empty means "no
-       suppression", which is the default, so this module stays IO-free:
-       the dispute aggregation lives in the DB layer, not here.
+       ``allowed_kinds`` skips this filter entirely.
+
+    The module stays IO-free: the dispute aggregation that produces
+    ``suppressed_categories`` and ``downrank_penalties`` lives in the DB
+    layer, not here.
 
     Parameters
     ----------
@@ -177,31 +193,47 @@ def filter_findings_by_policy(
         ``category`` field only (not severity/type), normalized with
         ``.strip().lower()`` on both sides to mirror the DB-side
         ``lower(trim(...))``. Empty means "no suppression".
+    downrank_penalties:
+        Optional ``{category: penalty}`` map (penalty in ``[0.0, 1.0]``)
+        subtracted from a finding's confidence before the ``min_confidence``
+        check. Keys are normalized with ``.strip().lower()`` to mirror the
+        DB-side ``lower(trim(...))``. ``None`` or empty means "no
+        down-ranking".
 
     Returns
     -------
     tuple
         ``(kept, dropped)``. ``kept`` is the filtered list in original
         order. ``dropped`` is a list of ``(finding, reason)`` tuples where
-        ``reason`` is one of ``"confidence_below_threshold"``,
-        ``"kind_not_allowed"``, or ``"disputed_class_suppressed"`` — useful
-        for logging and metrics so an operator can see *why* a real finding
-        got swallowed.
+        ``reason`` is one of ``"disputed_class_suppressed"``,
+        ``"confidence_below_threshold"``, ``"disputed_class_downranked"``,
+        or ``"kind_not_allowed"`` — useful for logging and metrics so an
+        operator can see *why* a real finding got swallowed.
     """
     allowed = {kind.strip().lower() for kind in allowed_kinds if kind}
     suppressed = {kind.strip().lower() for kind in suppressed_categories if kind}
+    penalties = {
+        category.strip().lower(): penalty
+        for category, penalty in (downrank_penalties or {}).items()
+        if category
+    }
     kept: list[JsonObject] = []
     dropped: list[tuple[JsonObject, str]] = []
     for finding in findings:
+        if suppressed and _finding_category_in(finding, suppressed):
+            dropped.append((finding, "disputed_class_suppressed"))
+            continue
         confidence = _finding_confidence(finding)
         if confidence is None or confidence < min_confidence:
             dropped.append((finding, "confidence_below_threshold"))
             continue
+        if penalties:
+            effective = confidence - _finding_downrank_penalty(finding, penalties)
+            if effective < min_confidence:
+                dropped.append((finding, "disputed_class_downranked"))
+                continue
         if allowed and not _finding_matches_kinds(finding, allowed):
             dropped.append((finding, "kind_not_allowed"))
-            continue
-        if suppressed and _finding_category_in(finding, suppressed):
-            dropped.append((finding, "disputed_class_suppressed"))
             continue
         kept.append(finding)
     return kept, dropped
@@ -253,6 +285,19 @@ def _finding_category_in(finding: JsonObject, suppressed: set[str]) -> bool:
     """
     value = finding.get("category")
     return isinstance(value, str) and value.strip().lower() in suppressed
+
+
+def _finding_downrank_penalty(finding: JsonObject, penalties: Mapping[str, float]) -> float:
+    """Return the down-rank penalty for the finding's ``category``, or ``0.0``.
+
+    Matches the ``category`` field only, normalized with ``.strip().lower()``
+    to mirror the DB-side ``lower(trim(...))``. A finding with no string
+    ``category`` (or a category not in ``penalties``) is never penalized.
+    """
+    value = finding.get("category")
+    if not isinstance(value, str):
+        return 0.0
+    return penalties.get(value.strip().lower(), 0.0)
 
 
 def changed_lines_from_files(
