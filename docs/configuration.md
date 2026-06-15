@@ -348,6 +348,13 @@ its current phase, **captures only** — it does not change which findings post,
 raise severities, or block anything. Rigor modulation and policy gates are a
 later, separately opt-in phase.
 
+To consume the captured provenance and governance decisions as auditable
+metrics — a provenance breakdown, accept-vs-dispute rate, noise trend, ROI
+proxy, token/cost rollups, policy-decision stats, and a per-change audit
+trail — use the read-only `bubo report` command (and the matching
+`get_governance_report` MCP tool). See [operate.md](operate.md),
+"Governance report".
+
 ### How capture works
 
 bubo already checks out a change before reviewing it, so it reads the change's

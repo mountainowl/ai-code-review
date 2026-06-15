@@ -11,6 +11,24 @@ production tag (`0.1.0`) cuts everything currently under "Unreleased".
 ## [Unreleased]
 
 ### Added
+- **Read-only governance report / export (`bubo report` + `get_governance_report`).**
+  A new read-only CLI command and matching MCP tool assemble an auditable
+  governance report from the metrics already in SQLite: review counts, a
+  **provenance breakdown** (counts by band/source), the **accept-vs-dispute
+  rate**, a **noise trend** (daily false-positive trend), a **bug-catch ROI
+  proxy**, token/cost rollups, **policy-decision stats** (from the Phase 2
+  `governance_decisions`), and a per-change **audit trail**. `bubo report`
+  emits the full nested report as JSON (`--format json`, the default) or a
+  single tabular section as CSV (`--format csv --section {audit,noise_trend}`,
+  default `audit`); scalar rollups are JSON-only. Windowing via `--since-hours`
+  (default 24) or fixed `--since`/`--until` ISO dates, plus `--project`,
+  `--limit`, and `--root`. `get_governance_report(since_hours, since, until,
+  project)` returns the same nested JSON to chat clients. **Strictly read-only**
+  (never mutates review state — safe from a monitoring cron) and **self-hosted**
+  (data never leaves your infrastructure). Policy-decision stats populate only
+  when Phase 2 governance is enabled; otherwise that section reports
+  `available: false`. See [docs/operate.md](docs/operate.md), "Governance
+  report".
 - **Opt-in governance rigor modulation + policy gates (Phase 2).** Builds on
   provenance capture. Two advisory, off-by-default capabilities that *use* the
   captured signal: (1) `[governance].rigor_modulation` injects a
