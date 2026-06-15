@@ -260,6 +260,14 @@ persistent, dismissed noise. The per-finding `min_confidence` and
 `allowed_kinds` filters are the first-line controls; this is a sharper,
 repo-learned complement.
 
+The feature is **conservative by design**: it is a precision lever for teams
+with accumulated accept/dispute history, and it does nothing on a fresh
+install. Even with the flag turned on, no category is suppressed until enough
+outcomes accrue to clear both `dispute_suppress_min_samples` and
+`dispute_suppress_threshold` — so enabling it early cannot silence findings
+off a thin signal. It simply stays inert until the data earns a suppression,
+which is the correct, cautious behavior for a noise filter.
+
 ### How a category gets suppressed
 
 For each repo, bubo joins `finding_outcomes` to `review_findings` and groups
