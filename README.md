@@ -106,7 +106,9 @@ Install prereqs (uv, Python 3.14+, Git, plus the CLI for your SCM and a Codex
 agent — see [prerequisites](docs/prerequisites.md)), then:
 
 ```sh
-uv tool install git+https://github.com/mountainowl/bubo@v0.8.0
+uv tool install bubo     # from PyPI (or: pip install bubo)
+# or track the main branch:
+#   uv tool install git+https://github.com/mountainowl/bubo
 bubo init                # idempotent; --dry-run to preview
 
 # Edit ~/.local/share/bubo/config/env.toml:

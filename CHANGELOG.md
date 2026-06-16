@@ -11,6 +11,14 @@ production tag (`0.1.0`) cuts everything currently under "Unreleased".
 ## [Unreleased]
 
 ### Added
+- **Published to PyPI — `pip install bubo` / `uv tool install bubo`.** A new
+  `publish-pypi.yml` workflow builds the sdist + wheel and uploads them to PyPI
+  on every `vX.Y.Z` release tag, using **PyPI Trusted Publishing** (OIDC — no
+  stored API token). The wheel already force-includes the deploy assets
+  (`bubo init` resolves them via `importlib.resources`), so a plain
+  `pip install bubo && bubo init` is now a first-class install path alongside
+  `uv tool install git+…`. One-time PyPI trusted-publisher setup is documented
+  in the workflow header.
 - **Opt-in review-comment tone ("moods").** `[review].tone` chooses the *voice*
   of a posted finding: `terse` (default — unchanged structured render),
   `collaborative`, `socratic`, `formal`, or `casual`. For any non-default tone
