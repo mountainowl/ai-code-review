@@ -312,6 +312,17 @@ fields, not the voiced comment**. So you can change tone at any time without
 re-posting existing findings, splitting their accept/dispute history, or
 disturbing the governance dataset — only the words developers read change.
 
+### The same finding in each tone
+
+One real finding (a cookie-deletion bug, captured on a public PR) as each tone
+would post it — identical severity/evidence/confidence underneath:
+
+- **`terse`** *(default)* — `**Issue (non-blocking, correctness):** popitem removes duplicate-name cookies` followed by the structured `**Impact:** … **Evidence:** … **Fix:** … **Confidence:** 0.99` block.
+- **`collaborative`** — "Heads up — this removes by name only, so if the jar has `sid` for `a.example` and `b.example`, one `popitem()` returns one pair but deletes both cookies. Probably worth clearing the specific cookie using its domain/path/name."
+- **`socratic`** — "What happens here when the jar has the same cookie name for two domains? `del self[name]` goes through `remove_cookie_by_name` without domain/path, so this removes every matching cookie while returning only one pair — should we clear the selected cookie by domain/path/name instead?"
+- **`formal`** — "When multiple domains contain the same cookie name, this deletes by name only and removes every matching cookie while returning a single pair. Recommend clearing the specific cookie selected by `popitem` using its domain, path, and name."
+- **`casual`** — "Quick one — this deletes by name only, so same-name cookies on other domains/paths get cleared too. Grab the Cookie from the iterator and clear that exact domain/path/name."
+
 ## Dispute-driven suppression
 
 Bubo records, per finding, whether the developer accepted or disputed it —
