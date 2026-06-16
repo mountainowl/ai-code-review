@@ -11,14 +11,16 @@ production tag (`0.1.0`) cuts everything currently under "Unreleased".
 ## [Unreleased]
 
 ### Added
-- **Per-stage review tracing (observability as data).** The `llm_review.run`
-  span now has a **child span per stage** — `checkout`, `provenance`, `agent`,
-  `post` — so a trace shows where each review's wall-clock actually went. The
-  `agent` span carries `tokens_input/output/total`, `cost_usd`, and `exit_code`;
-  `post` carries `findings_posted/planned/skipped`. Bubo emits the spans (via the
-  existing OpenTelemetry SDK; no new dependency, no-op when telemetry is off) so
-  any OTel backend can break latency/tokens/cost down by stage and model — Bubo
-  provides the data, you bring the tool. See [docs/telemetry.md](docs/telemetry.md).
+=======
+- **GitHub Action — review pull requests in CI (experimental).** A composite
+  `action.yml` at the repo root reviews the PR that triggered the workflow and
+  posts findings inline via REST (no MCP/poller needed), on GitHub-hosted **or
+  self-hosted** runners — your LLM key stays on the runner. Reuses the engine's
+  single-PR path (`[poller].target_merge_request_iid`). v1 caveat: the BYO agent
+  chain (Codex/Claude + the Superpowers `code-reviewer` skill, authenticated on
+  the runner) is environment-specific and needs validation on a real PR before
+  relying on it or publishing to the Marketplace — start with `dry-run: true`.
+  See [docs/github-action.md](docs/github-action.md).
 - **Published to PyPI — `pip install bubo` / `uv tool install bubo`.** A new
   `publish-pypi.yml` workflow builds the sdist + wheel and uploads them to PyPI
   on every `vX.Y.Z` release tag, using **PyPI Trusted Publishing** (OIDC — no
