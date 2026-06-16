@@ -395,6 +395,25 @@ def finding_body(finding: JsonObject) -> str:
     return "\n\n".join(parts).strip()
 
 
+def finding_comment_body(finding: JsonObject, tone: str = "terse") -> str:
+    """Return the body to POST for ``finding``, honoring the review ``tone``.
+
+    For a non-default tone, prefer the reviewer's in-voice ``comment`` field
+    (produced by the tone directive in the review prompt); fall back to the
+    structured :func:`finding_body` when it is missing or blank, or whenever
+    the tone is the default ``terse``.
+
+    Deliberately separate from :func:`finding_body`: the fingerprint and the
+    recorded canonical body always use the structured render, so the posted
+    voice never affects dedup, outcome identity, or the audit dataset.
+    """
+    if tone != "terse":
+        comment = finding.get("comment")
+        if isinstance(comment, str) and comment.strip():
+            return comment.strip()
+    return finding_body(finding)
+
+
 def finding_fingerprint(project: str, iid: int, sha: str, finding: JsonObject) -> str:
     payload = {
         "project": project,

@@ -75,6 +75,7 @@ from bubo.findings import (
     extract_findings,
     filter_findings_by_policy,
     finding_body,
+    finding_comment_body,
     finding_fingerprint,
 )
 from bubo.governance_policy import (
@@ -758,7 +759,8 @@ def post_or_plan_findings(
             )
             skipped += 1
             continue
-        body = finding_body(finding)
+        # Posted body honors [review].tone; the DB/fingerprint stay canonical.
+        body = finding_comment_body(finding, cfg.tone)
         if cfg.dry_run:
             record_finding(
                 project=project,
