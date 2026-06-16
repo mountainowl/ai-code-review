@@ -24,6 +24,7 @@ dev = [
   "mypy>=1.18.2",
   "pre-commit>=4.5.0",
   "pytest>=9.0.1",
+  "pytest-cov>=7.1.0",
   "ruff>=0.15.17",
 ]
 # Documentation site published to GitHub Pages from docs/ via
@@ -74,6 +75,25 @@ select = ["E", "F", "I", "B", "SIM", "UP", "PT", "RUF"]
 addopts = "-m 'not integration'"
 markers = [
     "integration: live, read-only tests against a real GitLab instance; require BUBO_IT_* env vars",
+]
+
+# Coverage is a measurement aid, never a merge gate — CI runs plain `pytest`
+# (no `--cov`), so a coverage dip cannot redden main. Measure on demand. On
+# Python 3.12+, prefer SPLITTING collection and report to sidestep coverage's
+# report-time tokenize/cache memory growth (nedbat/coveragepy#1791):
+#     uv run coverage run --source=src/bubo -m pytest -p no:logging
+#     uv run coverage report -m
+[tool.coverage.run]
+source = ["src/bubo"]
+branch = true
+omit = ["*/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "@(abc\\.)?abstractmethod",
 ]
 
 [tool.mypy]
