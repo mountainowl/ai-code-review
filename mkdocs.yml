@@ -69,6 +69,7 @@ nav:
   - GitHub Action (CI review): github-action.md
   - Configuration reference: configuration.md
   - Operate: operate.md
+  - Governance & compliance: governance.md
   - Metrics & telemetry: telemetry.md
   - Examples: examples/README.md
   - References: references.md

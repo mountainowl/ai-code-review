@@ -27,8 +27,12 @@ chatbot noise, no praise, no summaries.
 | 🎭 **Moods** | Pick the review voice — terse / collaborative / socratic / formal / casual. |
 | 📉 **Learns your taste** | Suppresses finding-classes your team repeatedly disputes. |
 | ✅ **Verify before posting** | Optional "is this real?" passes drop findings that don't hold up. |
-| 🛡️ **Governance-ready** | AI-code provenance, rigor modulation, auditable on-prem report. |
+| 🛡️ **Governance & compliance** | AI-code [provenance](https://mountainowl.github.io/bubo/governance/), rigor modulation, policy gates, auditable on-prem report — built for regulated teams. |
 | 🔌 **MCP + CI** | Built-in `bubo-mcp` server + a GitHub Action to review PRs in CI. |
+
+**Answering for your AI usage?** Bubo is self-hosted and BYO-LLM, with
+**provenance, governance, compliance, and observability** designed in →
+[Governance & compliance](https://mountainowl.github.io/bubo/governance/).
 
 ## 📖 Documentation
 

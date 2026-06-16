@@ -52,9 +52,13 @@ leaves your infrastructure — no chatbot chatter, no praise, no summaries.
 | 🎭 **Moods** | Pick the review voice — `terse` / `collaborative` / `socratic` / `formal` / `casual` — without touching the data. |
 | 📉 **Learns your taste** | Suppresses finding-classes your team repeatedly disputes. |
 | ✅ **Verify before posting** | Optional "is this real?" passes drop findings that don't hold up — point them at a second model for real diversity. |
-| 🛡️ **Governance-ready** | AI-code provenance, review-rigor modulation, and an auditable on-prem report (accept rate, ROI, noise trend, latency, policy decisions). |
+| 🛡️ **Governance & compliance** | AI-code [provenance](governance.md), rigor modulation, policy gates, and an auditable on-prem report — built for regulated teams. |
 | 📊 **Observability** | OpenTelemetry metrics; cosign-signed releases with SBOMs. |
 | 🔌 **MCP + CI** | Built-in `bubo-mcp` server, and a GitHub Action to review PRs in CI. |
+
+!!! tip "Answering for your AI usage?"
+    Bubo is self-hosted and BYO-LLM, with **provenance, governance, compliance,
+    and observability** designed in — see **[Governance & compliance](governance.md)**.
 
 ## What it does
 
