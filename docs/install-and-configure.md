@@ -6,9 +6,10 @@ bot/LLM credentials are handy.
 
 ## Install
 
-`uv tool install` is the recommended path. The old shell-installer scripts
-(`scripts/install-package.sh` and `scripts/deploy-package.sh`) are gone — use
-the `uv tool install` flow below (or pipx).
+Bubo ships on PyPI and GHCR, so there are a few ways in — pick one:
+`uv tool install` (recommended), `pipx` / plain `pip`, or the Docker image. The
+old shell-installer scripts (`scripts/install-package.sh` and
+`scripts/deploy-package.sh`) are gone.
 
 ### Option 1 — `uv tool install` (recommended)
 
@@ -47,14 +48,31 @@ bubo init     # idempotent — re-applies packaged template updates
 bubo doctor
 ```
 
-### Option 2 — pipx (functionally equivalent)
+### Option 2 — pipx or pip (functionally equivalent)
 
-For hosts without uv that already use pipx:
+For hosts without uv:
 
 ```sh
-pipx install bubo
+pipx install bubo      # isolated venv (recommended over bare pip)
+# or, into the current environment:
+pip install bubo
 bubo init
 ```
+
+### Option 3 — Docker (GHCR)
+
+A multi-arch image (amd64 + arm64) is published to GHCR each release. It ships
+bubo + git; the review-agent CLI (Codex/Claude) is BYO — derive your own image
+(`FROM ghcr.io/mountainowl/bubo`) or pre-provision the agent on the host/runner.
+
+```sh
+docker pull ghcr.io/mountainowl/bubo
+docker run --rm ghcr.io/mountainowl/bubo bubo report   # or bubo init / bubo-poller
+```
+
+Mount your `config/env.toml` and SQLite state to persist them across runs. For
+**reviewing PRs in CI**, use the [GitHub Action](github-action.md) instead of
+running the image by hand.
 
 ### Local development
 
