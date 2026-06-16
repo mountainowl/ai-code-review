@@ -53,12 +53,37 @@ leaves your infrastructure — no chatbot chatter, no praise, no summaries.
 | 📉 **Learns your taste** | Suppresses finding-classes your team repeatedly disputes. |
 | ✅ **Verify before posting** | Optional "is this real?" passes drop findings that don't hold up — point them at a second model for real diversity. |
 | 🛡️ **Governance & compliance** | AI-code [provenance](governance.md), rigor modulation, policy gates, and an auditable on-prem report — built for regulated teams. |
-| 📊 **Observability** | OpenTelemetry metrics; cosign-signed releases with SBOMs. |
+| 📈 **Measured ROI** | Tracks whether a finding *triggered a change* — accept-vs-dispute rate, a bug-catch ROI proxy ($/accepted finding), noise trend, latency, cost. |
+| 📊 **Observability** | Per-stage OpenTelemetry spans + `llm_review.*` metrics; cosign-signed releases with SBOMs. |
 | 🔌 **MCP + CI** | Built-in `bubo-mcp` server, and a GitHub Action to review PRs in CI. |
 
 !!! tip "Answering for your AI usage?"
     Bubo is self-hosted and BYO-LLM, with **provenance, governance, compliance,
     and observability** designed in — see **[Governance & compliance](governance.md)**.
+
+## Why Bubo — beyond basic review
+
+Plenty of tools post LLM comments on a PR. Bubo is built around a harder claim:
+*noise erodes trust faster than accuracy builds it.* Everything below exists to
+make the review **trustworthy, measurable, and yours**.
+
+- **Signal, not noise.** Bubo posts only actionable findings and stays silent
+  otherwise; opt-in **verification** re-checks each finding with independent
+  "is this real?" lenses before it's allowed to post.
+- **It learns your team.** Accept/dispute outcomes become a per-repo precision
+  lever that suppresses finding-classes you keep rejecting — and shows you *why*.
+- **Measured ROI.** Bubo records whether a finding actually triggered a change,
+  so you see accept-vs-dispute rate, a bug-catch ROI proxy ($ per accepted
+  finding), the noise trend, latency, and cost — not just "it ran."
+- **Governance & compliance.** AI-code provenance (banded, never a verdict),
+  rigor modulation, policy gates, and an auditable on-prem report — for teams
+  that have to *answer for* their AI usage. See [governance](governance.md).
+- **Observability as data.** Per-stage spans + `llm_review.*` metrics, so
+  latency/tokens/cost slice by stage and model in *your* tools, not bubo's.
+- **Yours.** Self-hosted, BYO-LLM, MIT — code and review data never leave your
+  infrastructure; run any model your CLI can drive.
+- **Reads like a teammate.** Optional tone "moods" tune the voice without
+  touching the data your audit reports run on.
 
 ## What it does
 
