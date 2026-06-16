@@ -211,9 +211,15 @@ def record_finding(
 ) -> None:
     """Persist a finding with its rendered body.
 
-    Computes the body via :func:`findings.finding_body` and delegates to
-    :func:`db.record_finding`. The DB layer takes ``body`` as a parameter
-    so it does not need to know about finding-formatting rules.
+    Records the *canonical* body via :func:`findings.finding_body` (mood-neutral,
+    matching the fingerprint), NOT the tone-aware posted body. So under a
+    non-default ``[review].tone`` the stored body stays stable while the comment
+    developers see (via :func:`findings.finding_comment_body`) carries the voice
+    — keeping the audit dataset comparable across tones.
+
+    Note: the in-voice ``comment`` itself is not stored — ``review_findings``
+    has no raw-finding column, so the canonical body is the durable record and
+    the voiced prose lives only on the posted SCM comment.
     """
     _db_record_finding(
         project=project,
