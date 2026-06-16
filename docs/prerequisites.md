@@ -1,7 +1,8 @@
 # Prerequisites
 
-A short list of tools to install on the review host before Bubo runs.
-Nothing is bundled implicitly — a missing tool fails its code path right away.
+Get the review host ready — install these tools on `PATH` first. Nothing is
+bundled implicitly: a missing tool fails its code path right away, so a minute
+here saves a confusing failure later.
 
 ## Runtime — required for any review
 

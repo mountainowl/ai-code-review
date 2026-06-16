@@ -173,11 +173,11 @@ Review execution sits outside CI/CD by design. Run it as a poller beside your ex
 
 ## Bot avatar
 
-Upload [`assets/bubo.png`](assets/bubo.png) as the GitLab (or future GitHub) bot avatar.
+Upload [`assets/bubo.png`](https://github.com/mountainowl/bubo/blob/main/assets/bubo.png) as the GitLab (or future GitHub) bot avatar.
 
 ![Bubo avatar preview](https://raw.githubusercontent.com/mountainowl/bubo/main/docs/images/bubo-avatar-preview.png)
 
 ## Community
 
 [Contributing](https://github.com/mountainowl/bubo/blob/main/CONTRIBUTING.md) · [Security policy](https://github.com/mountainowl/bubo/blob/main/SECURITY.md) ·
-[Support](SUPPORT.md) · [Code of conduct](CODE_OF_CONDUCT.md)
+[Support](https://github.com/mountainowl/bubo/blob/main/SUPPORT.md) · [Code of conduct](https://github.com/mountainowl/bubo/blob/main/CODE_OF_CONDUCT.md)

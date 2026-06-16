@@ -1,7 +1,8 @@
 # Operate
 
-This page covers running Bubo in production: deploying to a host, scheduling
-the poller, grading outcomes, governance reporting, and one-shot backfill.
+Take Bubo from a one-off poll to a hands-off reviewer in production: deploy it
+to a host, schedule the poller, grade the findings it posts, report for
+governance, and backfill history.
 
 ## Deploy to a host
 

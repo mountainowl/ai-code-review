@@ -1,5 +1,9 @@
 # Run
 
+Three ways to put Bubo to work: a one-off review of your current checkout, the
+polling loop that watches your projects, and the `bubo-mcp` server for chat
+clients. Pick whichever fits.
+
 To review the current checkout once, run your configured agent directly with a
 task (Codex is the bundled default; no GitLab interaction beyond the agent's
 own MCP calls):
