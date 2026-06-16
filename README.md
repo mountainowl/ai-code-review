@@ -126,6 +126,16 @@ right. The full walkthrough is in the
 [install and configure](docs/install-and-configure.md); poller flags and the
 bundled MCP server are in [run](docs/run.md).
 
+Prefer a container? A multi-arch image is published to GHCR each release:
+
+```sh
+docker pull ghcr.io/mountainowl/bubo
+docker run --rm ghcr.io/mountainowl/bubo bubo report   # or bubo init / bubo-poller
+```
+
+The image ships bubo + git; the review agent CLI (Codex/Claude) is BYO — derive
+your own image (`FROM ghcr.io/mountainowl/bubo`) or mount it in.
+
 ## Further reading
 
 These render on the [docs site](https://mountainowl.github.io/bubo/) and as
