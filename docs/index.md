@@ -2,6 +2,8 @@
 
 **Agentic AI code review — with the LLM of your choice.**
 
+![Bubo — agentic AI code review](images/bubo-hero.svg)
+
 [Bubo](https://en.wikipedia.org/wiki/Bubo_(genus)) is the genus of the great
 horned and eagle owls — patient night hunters that sit silent, see in the dark,
 and strike only when they're sure. Code review, same idea: Bubo watches your
