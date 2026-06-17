@@ -8,8 +8,14 @@ Responsibilities:
 
 * :func:`extract_findings` — robustly parse the reviewer's JSON output,
   including markdown-fenced and noisy-prose variants.
-* :func:`filter_findings_by_policy` — apply the operator's confidence and
-  kind whitelist policies from ``config/env.toml``.
+* :func:`normalize_category` / :func:`normalize_finding_categories` — map the
+  reviewer's free-form ``category`` string onto a fixed canonical taxonomy
+  (defect vs non-defect), stored in a *separate* ``category_canonical`` field
+  so the operator's ``mode``/kind policies can match deterministically while
+  the original label is preserved verbatim in the body, fingerprint, and audit.
+* :func:`filter_findings_by_policy` — apply the operator's confidence,
+  kind whitelist, surface-mode, and dispute-suppression policies from
+  ``config/env.toml``.
 * :func:`changed_lines_from_diffs` and :func:`build_position` — figure out
   whether a finding's ``file``/``line`` actually corresponds to an added
   line in the MR diff (only added lines can carry an inline GitLab comment).
@@ -33,7 +39,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from bubo.config_values import positive_int
 from bubo.hash_utils import stable_hash
@@ -52,6 +58,277 @@ _HUNK_HEADER = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 # finding. Defined as a module constant so the documentation in env.toml and
 # the runtime behavior stay in sync.
 _KIND_FIELDS = ("severity", "category", "type")
+
+# ---------------------------------------------------------------------------
+# Canonical category taxonomy
+# ---------------------------------------------------------------------------
+# The reviewer emits a *free-form* ``category`` string, and different models
+# (and the same model across runs) use wildly inconsistent labels for the same
+# thing — ``logic`` vs ``code-logic``, ``test`` vs ``testing`` vs
+# ``test-coverage``, ``documentation`` vs ``docs``. A raw whitelist cannot match
+# that reliably, so the surface-mode policy below first maps each label onto a
+# fixed, orthogonal taxonomy (the classic Orthogonal-Defect-Classification
+# idea: a small set of mutually-independent buckets, applied consistently).
+#
+# The split is defect vs non-defect. The defect set is what a high-precision
+# merge ``gate`` surfaces; the non-defect set (style/docs/test nits) is the
+# bulk of the observed low-value noise and is dropped by the gate but kept by
+# the default ``collaborate`` mode.
+DEFECT_CATEGORIES = frozenset(
+    {"correctness", "security", "concurrency", "resource", "error_handling", "performance"}
+)
+NON_DEFECT_CATEGORIES = frozenset({"style", "docs", "test", "design", "naming", "other"})
+CANONICAL_CATEGORIES = DEFECT_CATEGORIES | NON_DEFECT_CATEGORIES
+
+# The bucket an unrecognized label falls into. Deliberately a *non-defect* bucket
+# so an unknown category is never silently promoted into a merge gate.
+UNKNOWN_CATEGORY = "other"
+
+# Synonym table: ``stripped/lowercased/separator-normalized label -> canonical``.
+# Keys use hyphen as the separator; :func:`normalize_category` folds spaces and
+# underscores to hyphens before the lookup, so ``"Error Handling"``,
+# ``"error_handling"`` and ``"error-handling"`` all resolve identically. Covers
+# the labels observed empirically plus the contract's own enum
+# (``prompts/00-meta.md``: ``failure``, ``compatibility``, ``maintainability``,
+# ``documentation`` …). Unlisted labels fall through to ``other``.
+_CATEGORY_SYNONYMS: dict[str, str] = {
+    # --- correctness (incl. the contract's ``compatibility``: a broken API or
+    #     data contract is a correctness defect, so it belongs in the gate) ---
+    "correctness": "correctness",
+    "correct": "correctness",
+    "logic": "correctness",
+    "code-logic": "correctness",
+    "logic-error": "correctness",
+    "functional": "correctness",
+    "functionality": "correctness",
+    "bug": "correctness",
+    "defect": "correctness",
+    "behavior": "correctness",
+    "behaviour": "correctness",
+    "data-integrity": "correctness",
+    "data": "correctness",
+    "compatibility": "correctness",
+    "compat": "correctness",
+    "regression": "correctness",
+    # --- security ---
+    "security": "security",
+    "vulnerability": "security",
+    "vuln": "security",
+    "auth": "security",
+    "authentication": "security",
+    "authorization": "security",
+    "authz": "security",
+    "injection": "security",
+    "crypto": "security",
+    # --- concurrency ---
+    "concurrency": "concurrency",
+    "concurrent": "concurrency",
+    "race": "concurrency",
+    "race-condition": "concurrency",
+    "data-race": "concurrency",
+    "threading": "concurrency",
+    "thread-safety": "concurrency",
+    "async": "concurrency",
+    "deadlock": "concurrency",
+    "synchronization": "concurrency",
+    # --- resource (memory / handles / lifecycle) ---
+    "resource": "resource",
+    "resources": "resource",
+    "resource-management": "resource",
+    "resource-leak": "resource",
+    "memory": "resource",
+    "memory-safety": "resource",
+    "memory-leak": "resource",
+    "leak": "resource",
+    "lifecycle": "resource",
+    # --- error handling (incl. the contract's ``failure``) ---
+    "error-handling": "error_handling",
+    "error": "error_handling",
+    "errors": "error_handling",
+    "failure": "error_handling",
+    "exception": "error_handling",
+    "exception-handling": "error_handling",
+    "robustness": "error_handling",
+    "reliability": "error_handling",
+    "missing-check": "error_handling",
+    "validation": "error_handling",
+    "edge-case": "error_handling",
+    "null-safety": "error_handling",
+    # --- performance ---
+    "performance": "performance",
+    "perf": "performance",
+    "efficiency": "performance",
+    "optimization": "performance",
+    "scalability": "performance",
+    # --- style / formatting / readability (non-defect) ---
+    "style": "style",
+    "code-style": "style",
+    "formatting": "style",
+    "format": "style",
+    "lint": "style",
+    "linting": "style",
+    "clarity": "style",
+    "readability": "style",
+    "consistency": "style",
+    "convention": "style",
+    "conventions": "style",
+    # --- docs (incl. the contract's ``documentation``) ---
+    "docs": "docs",
+    "doc": "docs",
+    "documentation": "docs",
+    "comment": "docs",
+    "comments": "docs",
+    "javadoc": "docs",
+    "docstring": "docs",
+    # --- test ---
+    "test": "test",
+    "tests": "test",
+    "testing": "test",
+    "test-coverage": "test",
+    "coverage": "test",
+    "testability": "test",
+    # --- design / maintainability (incl. the contract's ``maintainability``) ---
+    "design": "design",
+    "maintainability": "design",
+    "architecture": "design",
+    "refactor": "design",
+    "refactoring": "design",
+    "code-quality": "design",
+    "quality": "design",
+    "complexity": "design",
+    "cleanup": "design",
+    "structure": "design",
+    "abstraction": "design",
+    # --- naming ---
+    "naming": "naming",
+    "name": "naming",
+    "names": "naming",
+    "nomenclature": "naming",
+    # --- explicit ``other`` (non-defect catch-alls seen in the wild) ---
+    "other": "other",
+    "misc": "other",
+    "miscellaneous": "other",
+    "general": "other",
+    "unknown": "other",
+    "usability": "other",
+    "ux": "other",
+    "ui": "other",
+    "ci": "other",
+    "ci-cd": "other",
+    "build": "other",
+    "config": "other",
+    "configuration": "other",
+    "observability": "other",
+    "logging": "other",
+    "monitoring": "other",
+    "process": "other",
+    "dependency": "other",
+    "dependencies": "other",
+    "i18n": "other",
+}
+
+# Severities the ``gate`` preset treats as merge-blocking. The contract asks for
+# ``blocking``/``non-blocking`` (``prompts/00-meta.md``), but real models also
+# emit ``high``/``critical``; an inclusion set (rather than a literal
+# ``== "blocking"`` test) keeps those severe defects in the gate instead of
+# silently dropping them. A finding with no/other severity is NOT gated through
+# — a merge gate should only block on an explicit high-severity signal.
+_GATE_SEVERITIES = frozenset({"blocking", "blocker", "critical", "high"})
+
+# Finding types the ``gate`` preset excludes: the deliberately collaborative
+# output modes. ``gate`` is the merge-blocking lane, where a question or
+# suggestion cannot be a blocker; ``collaborate`` (the default) keeps them.
+# Matched as an *exclusion* set so any assertion-style type (``issue``,
+# ``finding``, ``bug`` …) — and a finding with no type — still surfaces.
+_NON_ASSERTION_TYPES = frozenset({"suggestion", "question"})
+
+
+def normalize_category(value: object) -> str:
+    """Map a free-form ``category`` label onto the canonical taxonomy.
+
+    Pure and total: every input returns exactly one member of
+    :data:`CANONICAL_CATEGORIES`. The label is stripped, lowercased, and has
+    its spaces/underscores folded to hyphens before lookup, so ``"Error
+    Handling"``, ``"error_handling"`` and ``"error-handling"`` all map to
+    ``"error_handling"``. Anything not in :data:`_CATEGORY_SYNONYMS` — including
+    ``None``, a non-string, or an empty string — maps to
+    :data:`UNKNOWN_CATEGORY` (``"other"``), never raising.
+    """
+    if not isinstance(value, str):
+        return UNKNOWN_CATEGORY
+    key = value.strip().lower().replace(" ", "-").replace("_", "-")
+    if not key:
+        return UNKNOWN_CATEGORY
+    return _CATEGORY_SYNONYMS.get(key, UNKNOWN_CATEGORY)
+
+
+def normalize_finding_categories(findings: Iterable[JsonObject]) -> list[JsonObject]:
+    """Annotate each finding with a canonical ``category_canonical`` field.
+
+    Mutates each finding in place (adds one key) and returns the list so the
+    caller can chain. The reviewer's original free-form ``category`` is left
+    untouched: :func:`finding_body`, :func:`finding_fingerprint`, and the
+    recorded audit row all read ``category`` (not the canonical field), so
+    normalization never re-renders a comment, shifts a fingerprint, or rewrites
+    the operator's audit history. The canonical field exists purely so the
+    surface-mode/kind policy can match deterministically.
+    """
+    annotated = list(findings)
+    for finding in annotated:
+        finding["category_canonical"] = normalize_category(finding.get("category"))
+    return annotated
+
+
+def finding_canonical_category(finding: JsonObject) -> str:
+    """Return a finding's canonical category, preferring a pre-annotated value.
+
+    Falls back to normalizing ``category`` on the fly when
+    :func:`normalize_finding_categories` has not run, so policy checks are
+    correct whether or not the finding was annotated first.
+    """
+    annotated = finding.get("category_canonical")
+    if isinstance(annotated, str) and annotated:
+        return annotated
+    return normalize_category(finding.get("category"))
+
+
+def gate_surfaces(finding: JsonObject) -> bool:
+    """Surface predicate for the ``gate`` preset: keep only merge-blocking defects.
+
+    Conjunctive — a finding survives the gate only when **all** hold:
+
+    1. its ``type`` is not a collaborative mode (not ``suggestion``/``question``;
+       a missing type counts as an assertion and passes);
+    2. its ``severity`` is an explicit merge-blocking tier
+       (:data:`_GATE_SEVERITIES`); and
+    3. its canonical category is a defect (:data:`DEFECT_CATEGORIES`).
+
+    This is the high-precision, model-agnostic cut: on the empirical gpt-4o run
+    it drops the suggestion/question modes and the docs/style/CI-nit categories
+    while keeping blocking correctness/security/etc. defects. Pure; safe to call
+    on a finding that has not been through :func:`normalize_finding_categories`.
+    """
+    finding_type = finding.get("type")
+    if isinstance(finding_type, str) and finding_type.strip().lower() in _NON_ASSERTION_TYPES:
+        return False
+    severity = finding.get("severity")
+    if not isinstance(severity, str) or severity.strip().lower() not in _GATE_SEVERITIES:
+        return False
+    return finding_canonical_category(finding) in DEFECT_CATEGORIES
+
+
+def surface_predicate_for_mode(mode: str) -> Callable[[JsonObject], bool] | None:
+    """Resolve a ``[review].mode`` preset to a surface predicate for the filter.
+
+    Returns :func:`gate_surfaces` for ``"gate"`` (the high-precision merge lane)
+    and ``None`` for ``"collaborate"`` (the default) or any other value —
+    ``None`` means "no surface filter", which is byte-for-byte the pre-existing
+    behavior. Kept tiny and string-keyed so :mod:`bubo.review_config` owns no
+    review behavior.
+    """
+    if mode.strip().lower() == "gate":
+        return gate_surfaces
+    return None
 
 
 def extract_findings(raw: str, max_findings: int | None = None) -> list[JsonObject]:
@@ -144,11 +421,12 @@ def filter_findings_by_policy(
     *,
     min_confidence: float,
     allowed_kinds: Iterable[str] = (),
+    surface_predicate: Callable[[JsonObject], bool] | None = None,
     suppressed_categories: Iterable[str] = (),
 ) -> tuple[list[JsonObject], list[tuple[JsonObject, str]]]:
-    """Apply confidence, kind-whitelist, and dispute-suppression filters.
+    """Apply confidence, kind-whitelist, surface-mode, and dispute filters.
 
-    Three filters are applied in order; the first one a finding fails wins
+    Four filters are applied in order; the first one a finding fails wins
     the drop reason:
 
     1. **Confidence:** drop any finding whose ``confidence`` is missing,
@@ -162,7 +440,15 @@ def filter_findings_by_policy(
        ``allowed_kinds`` skips this filter entirely — "no whitelist
        configured" means "allow all kinds that already passed
        confidence".
-    3. **Suppressed categories:** if ``suppressed_categories`` is non-empty,
+    3. **Surface mode:** if ``surface_predicate`` is provided, drop any
+       finding it returns falsey for. This is the ``[review].mode`` preset
+       hook — ``gate`` passes :func:`gate_surfaces` (keep only merge-blocking
+       defects), ``collaborate`` (the default) passes ``None`` and skips this
+       filter entirely. Unlike :data:`allowed_kinds` (an OR across raw
+       severity/category/type fields), a predicate can express the gate's
+       *conjunction* across type + severity + canonical category, which a
+       flat whitelist cannot.
+    4. **Suppressed categories:** if ``suppressed_categories`` is non-empty,
        drop any finding whose ``category`` (case-insensitive) is in the set.
        This is the opt-in dispute-driven noise filter — the caller passes
        the categories a team has repeatedly rejected on this repo (see
@@ -180,6 +466,11 @@ def filter_findings_by_policy(
     allowed_kinds:
         Lowercase set of allowed severity/category/type values. Empty
         means "no kind filter".
+    surface_predicate:
+        Optional callable run per finding; a falsey return drops it with
+        reason ``"surface_mode_excluded"``. ``None`` (the default) skips this
+        filter, preserving the pre-mode behavior exactly. Resolve it from the
+        operator's ``[review].mode`` via :func:`surface_predicate_for_mode`.
     suppressed_categories:
         Categories to drop wholesale. Matched against the finding's
         ``category`` field only (not severity/type), normalized with
@@ -192,9 +483,9 @@ def filter_findings_by_policy(
         ``(kept, dropped)``. ``kept`` is the filtered list in original
         order. ``dropped`` is a list of ``(finding, reason)`` tuples where
         ``reason`` is one of ``"confidence_below_threshold"``,
-        ``"kind_not_allowed"``, or ``"disputed_class_suppressed"`` — useful
-        for logging and metrics so an operator can see *why* a real finding
-        got swallowed.
+        ``"kind_not_allowed"``, ``"surface_mode_excluded"``, or
+        ``"disputed_class_suppressed"`` — useful for logging and metrics so an
+        operator can see *why* a real finding got swallowed.
     """
     allowed = {kind.strip().lower() for kind in allowed_kinds if kind}
     suppressed = {kind.strip().lower() for kind in suppressed_categories if kind}
@@ -207,6 +498,9 @@ def filter_findings_by_policy(
             continue
         if allowed and not _finding_matches_kinds(finding, allowed):
             dropped.append((finding, "kind_not_allowed"))
+            continue
+        if surface_predicate is not None and not surface_predicate(finding):
+            dropped.append((finding, "surface_mode_excluded"))
             continue
         if suppressed and _finding_category_in(finding, suppressed):
             dropped.append((finding, "disputed_class_suppressed"))

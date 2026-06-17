@@ -85,6 +85,18 @@ DEFAULT_NO_FINDINGS_COMMENT = "Automated review ran — no issues found."
 DEFAULT_TONE = "terse"
 VALID_TONES = ("terse", "collaborative", "socratic", "formal", "casual")
 
+# Surface mode — *which* findings reach the poster, a precision/recall lever
+# distinct from ``tone`` (which only changes how a surfaced finding reads).
+# ``collaborate`` (the default) applies no surface filter: bubo's full typed
+# output, including the deliberate ``suggestion``/``question`` collaborative
+# modes, byte-identical to before this knob existed. ``gate`` is the opt-in
+# high-precision merge lane — only blocking-severity *defect* issues surface
+# (see :func:`bubo.findings.gate_surfaces`). The preset resolves to a surface
+# predicate consumed by ``filter_findings_by_policy``; the review prompt still
+# emits every type regardless of mode (the contract is never amputated).
+DEFAULT_MODE = "collaborate"
+VALID_MODES = ("collaborate", "gate")
+
 
 @dataclass(frozen=True, slots=True)
 class ReviewConfig:
@@ -192,6 +204,17 @@ class ReviewConfig:
         directive into the review prompt and post the reviewer's in-voice
         ``comment`` field instead. Mood-neutral fields/fingerprint are
         unaffected.
+    mode:
+        Surface-mode preset, one of :data:`VALID_MODES`. ``collaborate``
+        (default) surfaces every finding that clears ``min_confidence`` /
+        ``allowed_kinds`` — bubo's full collaborative output. ``gate`` is the
+        opt-in high-precision merge lane: only blocking-severity *defect*
+        findings (canonical category in
+        :data:`bubo.findings.DEFECT_CATEGORIES`) survive, dropping the
+        suggestion/question modes and the docs/style/CI-nit categories. Resolves
+        to a surface predicate via
+        :func:`bubo.findings.surface_predicate_for_mode`. Independent of
+        ``allowed_kinds``: when both are set, a finding must satisfy both.
     verify_findings:
         When ``True``, each finding that is otherwise about to be posted/
         planned is first re-checked by independent verification lenses; a
@@ -256,6 +279,7 @@ class ReviewConfig:
     post_no_findings_comment: bool = True
     no_findings_comment_body: str = DEFAULT_NO_FINDINGS_COMMENT
     tone: str = DEFAULT_TONE
+    mode: str = DEFAULT_MODE
     verify_findings: bool = False
     verify_lenses: list[str] = field(default_factory=lambda: list(DEFAULT_VERIFY_LENSES))
     verify_min_votes: int = 2
@@ -380,6 +404,7 @@ def review_config_from_dict(
             default=DEFAULT_NO_FINDINGS_COMMENT,
         ),
         tone=one_of(review.get("tone"), "review.tone", VALID_TONES, default=DEFAULT_TONE),
+        mode=one_of(review.get("mode"), "review.mode", VALID_MODES, default=DEFAULT_MODE),
         verify_findings=bool_value(
             review.get("verify_findings"),
             "verify_findings",

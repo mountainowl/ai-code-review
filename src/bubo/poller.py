@@ -77,6 +77,8 @@ from bubo.findings import (
     finding_body,
     finding_comment_body,
     finding_fingerprint,
+    normalize_finding_categories,
+    surface_predicate_for_mode,
 )
 from bubo.governance_policy import (
     POLICY_OFF,
@@ -765,6 +767,14 @@ def post_or_plan_findings(
     findings = extract_findings(raw_review, max_findings=cfg.max_findings_per_merge_request)
     if not findings:
         return (0, 0, 0)
+    # Map each free-form `category` onto the canonical taxonomy, stored in a
+    # separate `category_canonical` field; the original label is preserved for
+    # the body, fingerprint, and audit row. The surface-mode filter below reads
+    # the canonical field, so `gate` matches deterministically across the 30+
+    # free-form labels models actually emit. (The MCP `review` tool has its own
+    # parse path and returns raw findings to its client without the policy
+    # filter, so normalization is intentionally a poster-path concern only.)
+    findings = normalize_finding_categories(findings)
     # Opt-in, off by default: drop categories this repo has repeatedly
     # rejected, using the accept/dispute signal in finding_outcomes. The set
     # is empty (and the DB never queried) unless the operator enabled it.
@@ -781,6 +791,7 @@ def post_or_plan_findings(
         findings,
         min_confidence=cfg.min_confidence,
         allowed_kinds=cfg.allowed_kinds,
+        surface_predicate=surface_predicate_for_mode(cfg.mode),
         suppressed_categories=suppressed_categories,
     )
     for finding, reason in dropped:
@@ -794,6 +805,7 @@ def post_or_plan_findings(
             confidence=finding.get("confidence"),
             severity=finding.get("severity"),
             category=finding.get("category"),
+            category_canonical=finding.get("category_canonical"),
             type=finding.get("type"),
         )
     if not findings:

@@ -98,6 +98,11 @@ credentials live in that one TOML file.
       <td>Review-comment voice ("mood"): <code>terse</code> (default) / <code>collaborative</code> / <code>socratic</code> / <code>formal</code> / <code>casual</code>. Affects ONLY how a posted finding reads. <code>terse</code> posts the structured Impact/Evidence/Fix render unchanged; other tones ask the reviewer for an in-voice <code>comment</code> field and post that instead. The structured fields and the dedup fingerprint are identical across tones, so switching never re-posts a finding or splits its outcome history. See <a href="#review-comment-tone-moods">Review-comment tone</a> below.</td>
     </tr>
     <tr>
+      <td><code>mode</code></td>
+      <td><code>"collaborate"</code></td>
+      <td>Surface mode — <em>which</em> findings reach the poster (distinct from <code>tone</code>, which only changes how they read). <code>collaborate</code> (default) surfaces bubo's full typed output incl. <code>suggestion</code>/<code>question</code>. <code>gate</code> is the opt-in high-precision merge lane: only blocking-severity <em>defect</em> findings survive (drops suggestions/questions and docs/style/CI-nit categories). Independent of <code>allowed_kinds</code> — both apply if set. See <a href="#surface-mode-gate-vs-collaborate">Surface mode</a> below.</td>
+    </tr>
+    <tr>
       <td><code>suppress_disputed_classes</code></td>
       <td><code>false</code></td>
       <td>Opt-in. When <code>true</code>, drop finding <code>category</code> classes this repo has repeatedly rejected, using the accept/dispute outcome history. Off by default. See <a href="#dispute-driven-suppression">Dispute-driven suppression</a> below.</td>
@@ -327,6 +332,59 @@ would post it — identical severity/evidence/confidence underneath:
 - **`socratic`** — "What happens here when the jar has the same cookie name for two domains? `del self[name]` goes through `remove_cookie_by_name` without domain/path, so this removes every matching cookie while returning only one pair — should we clear the selected cookie by domain/path/name instead?"
 - **`formal`** — "When multiple domains contain the same cookie name, this deletes by name only and removes every matching cookie while returning a single pair. Recommend clearing the specific cookie selected by `popitem` using its domain, path, and name."
 - **`casual`** — "Quick one — this deletes by name only, so same-name cookies on other domains/paths get cleared too. Grab the Cookie from the iterator and clear that exact domain/path/name."
+
+## Surface mode: `gate` vs `collaborate`
+
+`[review].mode` is a **precision/recall lever** — it chooses *which* findings
+reach the poster, orthogonal to `tone` (which only changes how a surfaced
+finding reads). It is **off by default** (`collaborate`), and the review prompt
+always emits every finding type regardless of mode — `mode` only filters what
+gets posted.
+
+| mode | surfaces | use it for |
+|---|---|---|
+| `collaborate` *(default)* | bubo's full typed output — `issue`, **and** the deliberate `suggestion`/`question` collaborative modes — across every category | human-in-the-loop review, where a well-placed question or suggestion is a feature, not noise |
+| `gate` | **only** blocking-severity *defect* findings: `type = issue`, severity in `blocking`/`high`/`critical`, and a **canonical category** in the defect set | a CI / merge-blocking bot that must keep false positives near zero |
+
+`gate` raises precision at the cost of recall (a known trade-off — high-velocity
+teams target a <5% false-positive rate, while enterprises still want ≥90%
+recall), which is exactly why it is opt-in rather than the default.
+
+**Why a mode, not just `allowed_kinds`.** `allowed_kinds` keeps a finding if
+*any one* of its severity/category/type is whitelisted (an OR). `gate` is a
+*conjunction* — assertion type **and** blocking severity **and** defect category
+— which an OR-list cannot express. The two are independent filters: set both and
+a finding must satisfy both.
+
+### The canonical category taxonomy
+
+Models emit wildly inconsistent `category` strings (`logic` vs `code-logic`,
+`test`/`testing`/`test-coverage`, `documentation` vs `docs`), so `gate` first
+normalizes each finding's category onto a fixed, orthogonal taxonomy before
+deciding. The normalized value lives in a separate `category_canonical` field —
+your original label is preserved verbatim in the posted body, the dedup
+fingerprint, and the audit row, so turning `gate` on never re-posts or
+re-fingerprints an existing finding.
+
+- **Defect** (surfaced by `gate`): `correctness` · `security` · `concurrency` ·
+  `resource` · `error_handling` · `performance`
+- **Non-defect** (dropped by `gate`, kept by `collaborate`): `style` · `docs` ·
+  `test` · `design` · `naming` · `other`
+
+Unrecognized labels map to `other` (a non-defect bucket), so an unknown category
+is never silently promoted into the merge gate. Synonyms are folded
+automatically — including the review contract's own enum
+(`failure`→`error_handling`, `compatibility`→`correctness`,
+`maintainability`→`design`, `documentation`→`docs`).
+
+**On severity.** The contract asks for `blocking`/`non-blocking`, but real models
+also emit `high`/`critical`; `gate` accepts those so a severe defect is not
+silently dropped. A finding with no explicit severity does **not** pass the gate
+— a merge gate should block only on a clear high-severity signal.
+
+> **Audit note.** Dispute-driven suppression (below) still keys on the *raw*
+> `category`, by design: its job is to learn which labels *your team* rejects, so
+> it must see the model's own words, not the normalized bucket.
 
 ## Dispute-driven suppression
 
