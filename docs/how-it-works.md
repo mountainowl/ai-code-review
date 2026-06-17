@@ -7,49 +7,10 @@ graded, measurable feedback.
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    %% nodes and groups declared first, so subgraph membership is unambiguous
-    GL["GitLab MRs"]
-    GH["GitHub PRs"]
-    POLL["Poller<br/>discover changes · skip seen head SHAs"]
-
-    subgraph worker["Review worker · per change"]
-      direction TB
-      AGENT["Check out diff · capture provenance ·<br/>run agent skill (Codex / Claude) + review contract"]
-      PARSE["Parse findings ·<br/>normalize category → canonical taxonomy"]
-      AGENT --> PARSE
-    end
-
-    subgraph precision["Precision pipeline"]
-      direction TB
-      POLICY["Policy filter<br/>confidence floor + per-class calibration ·<br/>mode: gate / collaborate · dispute suppression"]
-      VERIFY{"Verify?<br/>opt-in refutation lenses"}
-      POLICY --> VERIFY
-    end
-
-    POST["Post<br/>inline discussion · or PLANNED in dry-run ·<br/>no findings → one 'all good' note"]
-    REC["Record REFUTED"]
-    STATE[("SQLite state<br/>reviewed SHAs · fingerprints · outcomes")]
-    OTEL["OpenTelemetry<br/>per-stage spans"]
-    SYNC["--sync-outcomes, later<br/>grade: resolved · disputed ·<br/>deleted · merged-unresolved"]
-
-    %% forward flow
-    GL --> POLL
-    GH --> POLL
-    POLL ==>|fork a worker per change| AGENT
-    PARSE --> POLICY
-    VERIFY -->|survives| POST
-    VERIFY -->|refuted| REC
-    POST --> STATE
-    POST ==> SYNC
-    POST -. emit .-> OTEL
-
-    %% feedback loops — what makes the system non-linear
-    STATE -. dedup · never double-post .-> POLL
-    SYNC --> STATE
-    SYNC -. dispute rates feed calibration + suppression .-> POLICY
-```
+<figure markdown="span">
+  ![Bubo architecture — GitLab/GitHub changes flow through the poller, a forked review worker, and the precision pipeline to posting, with SQLite-state and outcome-sync feedback loops.](images/architecture.svg){ width="720" }
+  <figcaption>Discover → review → precision filter → post, plus two feedback loops: SQLite state back into the poller (dedup), and graded outcomes back into per-class calibration.</figcaption>
+</figure>
 
 Two things the straight-line view hides, and the diagram makes explicit:
 
