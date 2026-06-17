@@ -199,3 +199,94 @@ def test_cmd_ui_export_does_not_create_db_on_fresh_root(
     )
     # Read-only: exporting must never initialize the operator's DB.
     assert not paths.DB.exists()
+
+
+# ---------------------------------------------------------------------------
+# Read-only DB: a populated but read-only DB must export populated, not empty
+# (the silent-data-loss regression), and the operator DB stays untouched.
+# ---------------------------------------------------------------------------
+
+
+def test_build_data_reads_readonly_db_with_hot_wal(isolated_root: Path) -> None:
+    # Regression for silent data loss against a read-only mount. The trap: if
+    # the export only copies the main .sqlite (not -wal), rows that live ONLY in
+    # an uncheckpointed WAL vanish. So we force a HOT WAL — a writer connection
+    # with autocheckpoint disabled, kept OPEN (closing it would checkpoint) —
+    # then lock the DB read-only and assert the WAL rows survive the export.
+    import stat
+
+    db.init_db()
+    keep_open = sqlite3.connect(paths.DB, timeout=30)
+    keep_open.execute("pragma journal_mode=WAL")
+    keep_open.execute("pragma wal_autocheckpoint=0")  # rows stay in -wal
+    keep_open.execute(
+        "insert into reviewed_mrs(project,iid,sha,status,updated_at) values(?,?,?,?,?)",
+        ("wal/repo", 99, "walsha", "success", "2026-06-16T12:00:00+00:00"),
+    )
+    keep_open.commit()
+
+    db_dir = paths.DB.parent
+    db_before = (paths.DB.read_bytes(), paths.DB.stat().st_mtime_ns)
+    # Lock the DB file + directory read-only, simulating a RO mount.
+    paths.DB.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    db_dir.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP)
+    try:
+        data = ui_export.build_data()
+    finally:
+        db_dir.chmod(0o755)
+        paths.DB.chmod(0o644)
+        keep_open.close()
+
+    # The WAL-only row must appear (proves -wal was copied), not silently lost.
+    assert data["meta"]["db_present"] is True
+    assert any(r["project"] == "wal/repo" for r in data["reviews"])
+    # The operator's main DB file is byte-for-byte unchanged (readers ran
+    # against a throwaway copy in a writable temp dir, never the original).
+    assert (paths.DB.read_bytes(), paths.DB.stat().st_mtime_ns) == db_before
+
+
+def test_build_data_empty_skeleton_on_corrupt_db(isolated_root: Path) -> None:
+    # A file that exists but is not a SQLite DB degrades to the empty skeleton
+    # (treated as "nothing to show"), not a crash.
+    paths.DB.parent.mkdir(parents=True, exist_ok=True)
+    paths.DB.write_text("this is not a sqlite database")
+
+    data = ui_export.build_data()
+
+    assert set(data.keys()) == _TOP_LEVEL_KEYS
+    assert data["reviews"] == []
+
+
+def test_build_data_surfaces_unreadable_db(isolated_root: Path) -> None:
+    # A DB file that exists but cannot be READ (permission denied) must SURFACE
+    # as an error (OSError), not be swallowed into an empty document — silently
+    # emptying a populated, auditable DB is the bug we are guarding against.
+    db.init_db()
+    _seed_one_review()
+    paths.DB.chmod(0o000)  # unreadable file; dir stays traversable so exists() holds
+    try:
+        with pytest.raises(PermissionError):
+            ui_export.build_data()
+    finally:
+        paths.DB.chmod(0o644)
+
+
+def test_cmd_ui_export_nonzero_and_no_write_on_unreadable_db(
+    isolated_root: Path, tmp_path: Path
+) -> None:
+    # The CLI must exit non-zero and write NOTHING when the DB is unreadable.
+    db.init_db()
+    _seed_one_review()
+    out = tmp_path / "out"
+    paths.DB.chmod(0o000)
+    try:
+        rc = cli.cmd_ui_export(
+            cli.build_parser().parse_args(
+                ["ui-export", "--root", str(isolated_root), "--out", str(out)]
+            )
+        )
+    finally:
+        paths.DB.chmod(0o644)
+
+    assert rc == 1
+    assert not (out / "data.json").exists()

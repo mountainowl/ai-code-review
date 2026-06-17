@@ -14,8 +14,10 @@ Design rules, mirroring :mod:`bubo.report`:
   and never :func:`bubo.db.init_db`. On a *missing* DB it short-circuits to
   a valid empty skeleton **without opening any connection** (the writer-mode
   readers would otherwise create an empty DB file on the operator's disk).
-  On a missing ``env.toml`` it falls back to :class:`ReviewConfig` defaults
-  for the read-only config display.
+  On an *existing* DB it reads from a throwaway read-only snapshot copy (see
+  :func:`_readonly_db_snapshot`), so the operator's file is never opened
+  read-write and a read-only mount works. On a missing ``env.toml`` it falls
+  back to :class:`ReviewConfig` defaults for the read-only config display.
 * **No network.** ``version.installed`` comes from
   :func:`importlib.metadata.version`; ``version.update`` is always ``None``
   (the design's PyPI update check is a later, online phase).
@@ -31,9 +33,14 @@ The document's top-level sections, in fixed emission order: ``meta``,
 from __future__ import annotations
 
 import re
+import shutil
 import sqlite3
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import fields, is_dataclass
 from importlib import metadata
+from pathlib import Path
 from typing import Any
 
 from bubo import db, paths, report
@@ -101,8 +108,9 @@ def _review_detail(project: str, iid: int, sha: str, run: JsonObject | None) -> 
     Outcomes are folded onto each finding by ``fingerprint`` so the SPA does
     not have to join client-side. ``run`` is the matching audit row (tokens,
     cost, provenance band/source, started_at/finished_at for the timeline), or
-    ``None`` if no run was recorded for this exact SHA. All readers are
-    SELECT-only against the already-existing DB.
+    ``None`` if no run was recorded for this exact SHA. The readers here SELECT
+    only; some use the writer connection, so :func:`build_data` runs them
+    against a read-only snapshot copy of the DB (never the operator's file).
     """
     findings = db.findings_for(project, iid, sha)
     outcomes = db.outcomes_for(project, iid, sha)
@@ -311,14 +319,61 @@ def _empty_skeleton(version: str) -> JsonObject:
     }
 
 
+@contextmanager
+def _readonly_db_snapshot() -> Iterator[None]:
+    """Retarget ``paths.DB`` at a private filesystem copy of the operator DB.
+
+    Several readers we call (``list_recent_reviews``, ``findings_for``,
+    ``count_inflight_workers``, …) open the *writer* connection, which runs
+    ``pragma journal_mode=WAL`` — a write. Against a read-only mount that fails;
+    against a writable one it would touch the operator's DB. Either way the
+    failure path would be swallowed into an empty document, silently losing data
+    in an auditable tool.
+
+    So we ``copy`` the DB file (plus its ``-wal`` sidecar, which carries
+    uncheckpointed rows) into a private temp dir with the filesystem, then point
+    ``paths.DB`` at the copy for the build. Every reader — writer- or
+    readonly-connection — then hits the throwaway copy in a *writable* temp dir,
+    where it can checkpoint the WAL normally; the operator's DB is never opened
+    at all. The ``-shm`` is deliberately NOT copied: SQLite rebuilds it from the
+    copied ``-wal`` in the writable temp dir, and a stale copied ``-shm`` would
+    be worse than none.
+
+    A failure to *read* the source (permission denied, unreadable mount) raises
+    ``OSError`` from :func:`shutil.copy2` and is left to surface — the export
+    must not mask it. Concurrency note: this is a plain file copy, so a copy
+    racing a live poller write can be torn; that is inherent to the
+    "snapshot, not live" design and is acceptable for a read-only export.
+    """
+    original = paths.DB
+    with tempfile.TemporaryDirectory(prefix="bubo-ui-") as tmp:
+        snapshot = Path(tmp) / "snapshot.sqlite"
+        shutil.copy2(original, snapshot)
+        wal = Path(f"{original}-wal")
+        if wal.exists():
+            shutil.copy2(wal, Path(f"{snapshot}-wal"))
+        paths.DB = snapshot
+        try:
+            yield
+        finally:
+            paths.DB = original
+
+
 def build_data() -> JsonObject:
     """Assemble the full ``data.json`` document — read-only, never mutating.
 
     Guards on ``paths.DB.exists()`` first: a missing DB returns the empty
     skeleton without opening any connection (so the export never creates the
-    operator's database). When the DB exists but is empty the readers return
-    empty aggregates and the same shape is produced. ``ConfigError`` and a
-    partially-migrated DB degrade gracefully rather than crash.
+    operator's database). When the DB exists it is snapshotted read-only (see
+    :func:`_readonly_db_snapshot`) so the readers — including the ones that use
+    the writer connection — run against a throwaway copy; this keeps the export
+    genuinely non-mutating and works against a read-only mount.
+
+    A DB that exists but is empty yields the same shape with empty aggregates.
+    A DB that exists but is *unreadable as SQLite* (truncated / not a database)
+    degrades to the empty skeleton; a DB file that cannot be *read at all*
+    (permission denied) raises ``OSError`` from the snapshot copy so the CLI
+    surfaces it rather than silently emptying a populated DB.
     """
     version = _installed_version()
     if not paths.DB.exists():
@@ -326,12 +381,18 @@ def build_data() -> JsonObject:
 
     cfg = _load_config()
     try:
-        reviews = _recent_reviews()
-        reports = _reports()
-        health = _health(cfg.timeout_seconds)
-        inflight = db.count_inflight_workers()
-    except (sqlite3.OperationalError, FileNotFoundError):
-        # DB exists but is not a usable bubo DB (truncated / pre-schema).
+        with _readonly_db_snapshot():
+            reviews = _recent_reviews()
+            reports = _reports()
+            health = _health(cfg.timeout_seconds)
+            inflight = db.count_inflight_workers()
+    except sqlite3.DatabaseError:
+        # The snapshot copy opened but is not a usable SQLite/bubo DB
+        # (truncated, "file is not a database", pre-schema). Treat as "nothing
+        # to show yet" rather than crash. NOTE: an unreadable *source* file
+        # raises OSError from shutil.copy2 inside the context manager — that is
+        # deliberately NOT caught here, so it propagates to the CLI (which exits
+        # non-zero) instead of silently producing an empty, data-losing export.
         return _empty_skeleton(version)
 
     return {

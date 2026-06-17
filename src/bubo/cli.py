@@ -560,7 +560,19 @@ def cmd_ui_export(args: argparse.Namespace) -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    data = ui_export.build_data()
+    try:
+        data = ui_export.build_data()
+    except OSError as exc:
+        # An EXISTING DB file that cannot be READ (permission denied, unreadable
+        # mount) raises OSError from the read-only snapshot copy. Surfacing this
+        # is deliberate: silently writing an empty data.json would hide real
+        # data in an auditable tool.
+        print(
+            f"bubo ui-export: cannot read state DB at {paths.DB} ({exc}); "
+            "check permissions / mount — nothing was written",
+            file=sys.stderr,
+        )
+        return 1
     data_json = report.to_json(data)
     (out_dir / "data.json").write_text(data_json)
     # file:// fallback: browsers block fetch() of a sibling file under the
