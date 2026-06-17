@@ -30,6 +30,7 @@ The document's top-level sections, in fixed emission order: ``meta``,
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import fields, is_dataclass
 from importlib import metadata
@@ -92,14 +93,16 @@ def _health(timeout_seconds: int) -> JsonObject:
     }
 
 
-def _review_detail(project: str, iid: int, sha: str) -> JsonObject:
-    """Embed one review's findings + outcomes + governance for offline detail.
+def _review_detail(project: str, iid: int, sha: str, run: JsonObject | None) -> JsonObject:
+    """Embed one review's findings + outcomes + governance + run for offline detail.
 
     Keyed by ``(project, iid, sha)`` so the detail matches the exact row in
     the recent-reviews list (never resolving to a different "current" SHA).
     Outcomes are folded onto each finding by ``fingerprint`` so the SPA does
-    not have to join client-side. All readers are SELECT-only against the
-    already-existing DB.
+    not have to join client-side. ``run`` is the matching audit row (tokens,
+    cost, provenance band/source, started_at/finished_at for the timeline), or
+    ``None`` if no run was recorded for this exact SHA. All readers are
+    SELECT-only against the already-existing DB.
     """
     findings = db.findings_for(project, iid, sha)
     outcomes = db.outcomes_for(project, iid, sha)
@@ -108,14 +111,34 @@ def _review_detail(project: str, iid: int, sha: str) -> JsonObject:
     return {
         "findings": enriched,
         "governance": db.governance_decisions_for(project, iid, sha),
+        "run": run,
     }
 
 
 def _recent_reviews() -> list[JsonObject]:
-    """Recent ``reviewed_mrs`` rows, each enriched with embedded detail."""
+    """Recent ``reviewed_mrs`` rows, each enriched with embedded detail.
+
+    The audit trail (tokens/cost/provenance/run-span per run) is pulled ONCE
+    over a wide window and indexed by ``(project, iid, sha)`` so each review's
+    detail can carry its run summary without a per-review query.
+    """
     rows = db.list_recent_reviews(limit=RECENT_REVIEWS_LIMIT)
+    # One audit pass keyed by (project, iid, sha); newest-first means the first
+    # row wins for a re-run SHA (the freshest run summary).
+    runs: dict[tuple[str, int, str], JsonObject] = {}
+    for audit in db.audit_rows(since_hours=24 * 366):
+        key = (audit["project"], audit["iid"], audit["sha"])
+        runs.setdefault(key, audit)
     return [
-        {**row, "detail": _review_detail(row["project"], row["iid"], row["sha"])}
+        {
+            **row,
+            "detail": _review_detail(
+                row["project"],
+                row["iid"],
+                row["sha"],
+                runs.get((row["project"], row["iid"], row["sha"])),
+            ),
+        }
         for row in rows
     ]
 
@@ -191,10 +214,25 @@ def _config_schema(cfg: ReviewConfig) -> list[JsonObject]:
                 "value": _config_value(getattr(cfg, f.name)),
                 "default": _config_value(getattr(defaults, f.name)),
                 "nested": f.name in _NESTED_CONFIG_FIELDS,
-                "description": docs.get(f.name, ""),
+                "description": _plain_text(docs.get(f.name, "")),
             }
         )
     return rows
+
+
+def _plain_text(text: str) -> str:
+    """Strip RST inline markup (``code``, :func:`x`) from a docstring fragment.
+
+    The ``ReviewConfig`` docstrings are written in RST; the read-only config
+    view shows plain text, so collapse ``` ``literal`` ``` to ``literal`` and
+    drop role prefixes like ``:func:`` / ``:class:`` / ``:data:`` / ``:mod:``.
+    """
+    if not text:
+        return ""
+    # :role:`target` -> target ; ``code`` -> code.
+    text = re.sub(r":[a-z]+:`([^`]+)`", r"\1", text)
+    text = re.sub(r"``([^`]+)``", r"\1", text)
+    return text.replace("`", "").strip()
 
 
 def _attr_docs(cls: type) -> dict[str, str]:
