@@ -59,15 +59,15 @@
   <path class="ba-edge" d="M300,660 L300,818" marker-end="url(#ba-arg)"/>
   <!-- async: telemetry export; deferred outcome grading -->
   <path class="ba-edged" d="M170,628 L152,628" marker-end="url(#ba-arg)"/>
-  <path class="ba-edged" d="M430,636 C522,652 545,684 545,714" marker-end="url(#ba-arg)"/>
-  <text class="ba-tlab" x="468" y="676" font-size="10px">grade</text>
-  <path class="ba-edged" d="M430,758 C402,786 392,804 380,820" marker-end="url(#ba-arg)"/>
+  <path class="ba-edged" d="M430,628 H533 Q545,628 545,640 V710" marker-end="url(#ba-arg)"/>
+  <text class="ba-tlab" x="552" y="686" font-size="10px">grade</text>
+  <path class="ba-edged" d="M430,749 H382 Q370,749 370,761 V815" marker-end="url(#ba-arg)"/>
 
   <!-- async feedback loops -->
-  <path class="ba-fb" d="M410,852 C706,852 706,470 706,320 C706,172 470,164 432,161" marker-end="url(#ba-arfb)"/>
-  <text class="ba-fblab" x="560" y="118">dedup · no double-post</text>
-  <path class="ba-fb" d="M660,742 C686,716 686,540 686,470 C686,448 470,440 432,440" marker-end="url(#ba-arfb)"/>
-  <text class="ba-fblab" x="500" y="624">dispute rates feed calibration</text>
+  <path class="ba-fb" d="M410,840 H692 Q704,840 704,828 V173 Q704,161 692,161 H434" marker-end="url(#ba-arfb)"/>
+  <text class="ba-fblab" x="556" y="150">dedup · no double-post</text>
+  <path class="ba-fb" d="M660,749 H672 Q684,749 684,737 V452 Q684,440 672,440 H434" marker-end="url(#ba-arfb)"/>
+  <text class="ba-fblab" x="490" y="432">dispute rates feed calibration</text>
 
   <rect class="ba-src" x="110" y="32" width="160" height="46" rx="23"/>
   <text class="ba-title" x="190" y="60" text-anchor="middle" font-size="13px">GitLab MRs</text>
