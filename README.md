@@ -1,4 +1,4 @@
-# Bubo 🦉
+# Bubo
 
 [![PyPI](https://img.shields.io/pypi/v/bubo?logo=pypi&logoColor=white)](https://pypi.org/project/bubo/)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-3776ab?logo=python&logoColor=white)](https://github.com/mountainowl/bubo/blob/main/pyproject.toml)
@@ -12,46 +12,36 @@
 [![Docs](https://img.shields.io/badge/docs-mountainowl.github.io%2Fbubo-4f62ad)](https://mountainowl.github.io/bubo/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111827)](https://github.com/mountainowl/bubo/blob/main/LICENSE)
 
-> **Agentic AI code review — with the LLM of your choice.**
+> **Agentic AI code review with the LLM of your choice.**
 
-*Self-hosted · bring-your-own-LLM · GitLab + GitHub · inline findings only ·
-governance, provenance & audit · OpenTelemetry metrics*
+*Self-hosted · bring-your-own-LLM · GitLab + GitHub · inline findings only · governance, provenance & audit · OpenTelemetry metrics*
 
-[Bubo](https://en.wikipedia.org/wiki/Bubo_(genus)) is the genus of the great
-horned and eagle owls — patient night hunters that sit silent, see in the dark,
-and strike only when sure. Code review, same idea: Bubo reviews your GitLab MRs
-and GitHub PRs with **the LLM you choose** (Codex, Claude, or any model your CLI
-drives) and posts only the findings worth acting on as inline threads — no
-chatbot noise, no praise, no summaries.
+Bubo — named for the [genus](https://en.wikipedia.org/wiki/Bubo_(genus)) of great horned and eagle owls — reviews your GitLab merge requests and GitHub pull requests using the LLM you choose: Codex, Claude, or any model your CLI drives. It posts only the findings worth acting on, as inline threads, and stays quiet the rest of the time. No conversational replies, no praise, no summaries.
 
-## Features at a glance
+## Features
 
 | | |
 |---|---|
-| 🧠 **Bring your own LLM** | Codex, Claude, or any model your CLI drives — no vendor lock-in. |
-| 🔒 **Self-hosted** | Code, diffs, and review data stay on your infrastructure. |
-| 🔀 **GitLab + GitHub** | MRs and PRs, one config, identical behavior on both. |
-| 🎯 **Signal over noise** | Only actionable inline findings; one "all good" ack on a clean change. |
-| 🎭 **Moods** | Pick the review voice — terse / collaborative / socratic / formal / casual. |
-| 📉 **Learns your taste** | Suppresses finding-classes your team repeatedly disputes. |
-| ✅ **Verify before posting** | Optional "is this real?" passes drop findings that don't hold up. |
-| 🛡️ **Governance-ready** | AI-code provenance, rigor modulation, auditable on-prem report. |
-| 🔌 **MCP + CI** | Built-in `bubo-mcp` server + a GitHub Action to review PRs in CI. |
+| **Bring your own LLM** | Codex, Claude, or any model your CLI drives. No vendor lock-in. |
+| **Self-hosted** | Code, diffs, and review data stay on your infrastructure. |
+| **GitLab and GitHub** | Merge requests and pull requests, one config, identical behavior on both. |
+| **Signal over noise** | Only actionable inline findings, plus one acknowledgement on a clean change. |
+| **Review tone** | Match comment wording to your team: terse, collaborative, socratic, formal, or casual. |
+| **Learns your team's taste** | Suppresses finding-classes your team repeatedly disputes. |
+| **Verify before posting** | Optional second-pass checks drop findings that don't hold up. |
+| **Governance-ready** | AI-code provenance, review-rigor modulation, and an auditable on-prem report. |
+| **MCP and CI** | A built-in `bubo-mcp` server, and a GitHub Action to review PRs in CI. |
 
-## 📖 Documentation
+## Documentation
 
-**Rendered docs live at → [mountainowl.github.io/bubo](https://mountainowl.github.io/bubo/)**
-— the canonical reference. The `docs/*.md` files below are its source; this README
-is a teaser.
-
-👉 New here? The **[Recipes](https://mountainowl.github.io/bubo/recipes/)**
-([docs/recipes.md](https://github.com/mountainowl/bubo/blob/main/docs/recipes.md)) are copy-paste setups for GitLab and
-GitHub, using Codex (the bundled default) or Claude as the review agent.
+Full documentation is at [mountainowl.github.io/bubo](https://mountainowl.github.io/bubo/). Start with the
+[Recipes](https://mountainowl.github.io/bubo/recipes/)
+([docs/recipes.md](https://github.com/mountainowl/bubo/blob/main/docs/recipes.md)) — copy-paste setups for GitLab
+and GitHub using Codex (the bundled default) or Claude as the review agent.
 
 ## What a review looks like
 
-Findings are posted inline in a fixed shape — `Issue` / `Impact` / `Evidence` /
-`Fix` / `Confidence`:
+Findings are posted inline in a fixed shape: `Issue` / `Impact` / `Evidence` / `Fix` / `Confidence`.
 
 ```text
 Issue: HS256 JWT fallback is skipped when Cognito URL construction fails.
@@ -61,64 +51,52 @@ Fix: Treat Cognito validation construction failures as failed Cognito auth when 
 Confidence: 0.94
 ```
 
-Found nothing? Bubo posts one short change-level acknowledgement
-(`Automated review ran — no issues found.`) so a clean MR/PR reads differently
-from one the reviewer never touched. It's on by default, dedup'd by bot author +
-exact body, and configurable under `[agents]` (see the
-[configuration reference](https://github.com/mountainowl/bubo/blob/main/docs/configuration.md)).
+When a review finds nothing, Bubo posts a single change-level acknowledgement
+(`Automated review ran — no issues found.`) so a clean MR or PR is distinguishable from one that was never
+reviewed. It is on by default, deduplicated by bot author and exact body, and configurable under `[agents]`
+(see the [configuration reference](https://github.com/mountainowl/bubo/blob/main/docs/configuration.md)).
 
-## 🎭 Give it a mood
+## Review tone
 
-A finding only helps if someone reads it. The shape above is `terse` — the
-default, and the right call when you want pure signal. But a robotic comment gets
-skimmed; one that sounds like a teammate gets *fixed*. So Bubo lets you pick the
-**voice**. One knob:
+Bubo can match a finding's wording to your team's style without changing the finding itself:
 
 ```toml
 [review]
 tone = "collaborative"   # terse · collaborative · socratic · formal · casual
 ```
 
-Below is **one real finding** — a cookie-deletion bug Bubo caught on a public PR
-— wearing four moods. Same bug, same evidence, same `0.99` confidence underneath.
-Only the words change:
+The same cookie-deletion bug, caught on a public PR at `0.99` confidence, rendered in four tones:
 
-> 🤝 **collaborative** — *for teams who want a teammate, not a linter*
-> Heads up — this removes by name only, so if the jar has `sid` for `a.example`
-> and `b.example`, one `popitem()` returns one pair but deletes both cookies.
-> Probably worth clearing the specific cookie using its domain/path/name.
+> **collaborative**
+> This removes by name only, so if the jar has `sid` for `a.example` and `b.example`, one `popitem()`
+> returns one pair but deletes both cookies. Clear the specific cookie using its domain, path, and name.
 
-> 🤔 **socratic** — *for mentoring and review-as-teaching*
-> What happens here when the jar has the same cookie name for two domains?
-> `del self[name]` goes through `remove_cookie_by_name` without domain/path, so
-> this removes every matching cookie while returning only one pair — should we
-> clear the selected cookie by domain/path/name instead?
+> **socratic**
+> What happens when the jar has the same cookie name for two domains? `del self[name]` goes through
+> `remove_cookie_by_name` without domain or path, so it removes every matching cookie while returning only
+> one pair. Should it clear the selected cookie by domain/path/name instead?
 
-> 🏛️ **formal** — *for regulated shops and a clean audit trail*
-> When multiple domains contain the same cookie name, this deletes by name only
-> and removes every matching cookie while returning a single pair. Recommend
-> clearing the specific cookie selected by `popitem` using its domain, path, and
-> name.
+> **formal**
+> When multiple domains contain the same cookie name, this deletes by name only and removes every matching
+> cookie while returning a single pair. Recommend clearing the specific cookie selected by `popitem` using
+> its domain, path, and name.
 
-> 😎 **casual** — *for startups who keep it light*
-> Quick one — this deletes by name only, so same-name cookies on other
-> domains/paths get cleared too. Grab the Cookie from the iterator and clear
-> that exact domain/path/name.
+> **casual**
+> This deletes by name only, so same-name cookies on other domains and paths get cleared too. Grab the
+> Cookie from the iterator and clear that exact domain/path/name.
 
-**The catch? There isn't one.** Mood changes *only the words a developer reads*.
-Severity, evidence, confidence, the dedup fingerprint, and every row in your
-governance/audit dataset stay identical across tones — so you tune the voice for
-your humans without touching the data your compliance reports run on. Ships as
-`terse`; opt in when you're ready, set it once, leave it to the operator.
-→ [tone reference](https://github.com/mountainowl/bubo/blob/main/docs/configuration.md#review-comment-tone-moods)
+Tone changes only the words a developer reads. Severity, evidence, confidence, the dedup fingerprint, and
+every row in the governance and audit dataset are identical across tones, so you can tune the voice for your
+team without affecting the data your compliance reports run on. The default is `terse`. See the
+[tone reference](https://github.com/mountainowl/bubo/blob/main/docs/configuration.md#review-comment-tone-moods).
 
 More sanitized review examples are in
 [docs/examples/README.md](https://github.com/mountainowl/bubo/blob/main/docs/examples/README.md).
 
-## 60-second quickstart
+## Quickstart
 
-Install the prereqs (uv, Python 3.14+, Git, plus the CLI for your SCM and a Codex
-agent — see [prerequisites](https://github.com/mountainowl/bubo/blob/main/docs/prerequisites.md)), then:
+Install the prerequisites (uv, Python 3.14+, Git, plus the CLI for your SCM and a Codex agent — see
+[prerequisites](https://github.com/mountainowl/bubo/blob/main/docs/prerequisites.md)), then:
 
 ```sh
 uv tool install bubo     # from PyPI (or: pip install bubo)
@@ -134,26 +112,23 @@ bubo doctor              # verify before first poll
 bubo-poller              # one poll cycle; exits at the end
 ```
 
-The first cycle runs with `[review].dry_run = true` (the default) — findings are
-planned, no comments posted. Flip to `false` once a real review looks right. Full
-walkthrough in the **[Recipes](https://mountainowl.github.io/bubo/recipes/)** and
-[install and configure](https://github.com/mountainowl/bubo/blob/main/docs/install-and-configure.md); poller flags and the
-bundled MCP server are in [run](https://github.com/mountainowl/bubo/blob/main/docs/run.md).
+The first cycle runs with `[review].dry_run = true` (the default): findings are planned, not posted. Set it
+to `false` once a real review looks right. Full walkthrough in the
+[Recipes](https://mountainowl.github.io/bubo/recipes/) and
+[install and configure](https://github.com/mountainowl/bubo/blob/main/docs/install-and-configure.md); poller
+flags and the bundled MCP server are in [run](https://github.com/mountainowl/bubo/blob/main/docs/run.md).
 
-Prefer a container? A multi-arch image is published to GHCR each release:
+To run in a container, a multi-arch image is published to GHCR on each release:
 
 ```sh
 docker pull ghcr.io/mountainowl/bubo
 docker run --rm ghcr.io/mountainowl/bubo bubo report   # or bubo init / bubo-poller
 ```
 
-The image ships bubo + git; the review-agent CLI (Codex/Claude) is BYO — derive
-your own image (`FROM ghcr.io/mountainowl/bubo`) or mount it in.
+The image ships bubo and git; the review-agent CLI (Codex or Claude) is bring-your-own. Derive your own
+image (`FROM ghcr.io/mountainowl/bubo`) or mount one in.
 
 ## Further reading
-
-These render on the [docs site](https://mountainowl.github.io/bubo/) and as plain
-Markdown in the repo:
 
 | Doc | What's in it |
 |---|---|
@@ -166,26 +141,23 @@ Markdown in the repo:
 
 ## Status
 
-- **GitLab & GitHub posting via polling** — production path, at outcome-metric
-  parity. Set `[scm].provider = "github"` (or `BUBO_PROVIDER=github`).
-- **MCP server (`bubo-mcp`)** — read-only metrics + triggered reviews; stdio or HTTP.
-- **Codex or Claude** — Bubo runs the review through a wrapper around your agent
-  CLI. Codex ships pre-wired as the bundled default; Claude works the same way
-  once you point the wrapper at it.
+- **GitLab and GitHub posting via polling** — production path, at outcome-metric parity. Set
+  `[scm].provider = "github"` (or `BUBO_PROVIDER=github`).
+- **MCP server (`bubo-mcp`)** — read-only metrics and triggered reviews, over stdio or HTTP.
+- **Codex or Claude** — Bubo runs the review through a wrapper around your agent CLI. Codex ships pre-wired
+  as the bundled default; Claude works the same way once you point the wrapper at it.
 - **Webhook-driven triggering** — not yet; polling is the only path.
 
 Review execution sits outside CI/CD by design. Run it as a poller beside your existing pipelines.
 
 ## Security
 
-- `config/env.toml` is gitignored and holds tokens. **Do not print or commit
-  real values from it.**
-- Review-agent stdout is redacted (`GITLAB_TOKEN=`, `OPENAI_API_KEY=`, `glpat-…`,
-  `sk-…`, and credentialed Git URLs) before it touches reports, logs, or the
-  database error column.
-- The reviewer subprocess runs under a strict env allowlist — host secrets aren't
-  passed wholesale into the LLM agent. Releases are cosign-signed with an SBOM.
-  Report vulnerabilities per [`SECURITY.md`](https://github.com/mountainowl/bubo/blob/main/SECURITY.md).
+- `config/env.toml` is gitignored and holds tokens. Do not print or commit real values from it.
+- Review-agent stdout is redacted (`GITLAB_TOKEN=`, `OPENAI_API_KEY=`, `glpat-…`, `sk-…`, and credentialed
+  Git URLs) before it touches reports, logs, or the database error column.
+- The reviewer subprocess runs under a strict env allowlist, so host secrets aren't passed wholesale to the
+  LLM agent. Releases are cosign-signed with an SBOM. Report vulnerabilities per
+  [`SECURITY.md`](https://github.com/mountainowl/bubo/blob/main/SECURITY.md).
 
 ## Bot avatar
 
@@ -195,5 +167,6 @@ Upload [`assets/bubo.png`](assets/bubo.png) as the GitLab (or future GitHub) bot
 
 ## Community
 
-[Contributing](https://github.com/mountainowl/bubo/blob/main/CONTRIBUTING.md) · [Security policy](https://github.com/mountainowl/bubo/blob/main/SECURITY.md) ·
+[Contributing](https://github.com/mountainowl/bubo/blob/main/CONTRIBUTING.md) ·
+[Security policy](https://github.com/mountainowl/bubo/blob/main/SECURITY.md) ·
 [Support](SUPPORT.md) · [Code of conduct](CODE_OF_CONDUCT.md)
