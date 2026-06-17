@@ -70,9 +70,10 @@ def test_launch_readiness_files_exist() -> None:
     assert "bubo init" in readme
     assert "bubo doctor" in readme
     assert "actions/workflows/ci.yml/badge.svg" in readme
-    # Scorecard badge via shields' direct endpoint — the api.scorecard.dev
-    # URL 302-redirects, which GitHub's image proxy renders as a broken image.
-    assert "img.shields.io/ossf-scorecard/github.com/mountainowl/bubo" in readme
+    # Scorecard badge via the GitHub-served workflow badge (same mechanism as
+    # the CI badge). The shields ossf-scorecard + api.scorecard.dev endpoints
+    # both render as broken images through GitHub's camo image proxy.
+    assert "actions/workflows/scorecard.yml/badge.svg" in readme
     assert "Run it as a poller beside your" in readme
 
 
