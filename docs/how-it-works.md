@@ -9,7 +9,7 @@ graded, measurable feedback.
 
 <figure markdown="span">
   ![Bubo architecture — GitLab/GitHub changes flow through the poller, a forked review worker, and the precision pipeline to posting, with SQLite-state and outcome-sync feedback loops.](images/architecture.svg){ width="720" }
-  <figcaption>Discover → review → precision filter → post, plus two feedback loops: SQLite state back into the poller (dedup), and graded outcomes back into per-class calibration.</figcaption>
+  <figcaption>Discover → review → precision filter → post, plus two feedback loops: SQLite state back into the poller (dedup), and graded outcomes back into per-class calibration. Solid arrows are synchronous (the per-change worker path); dotted arrows are asynchronous (polling, fork-out, telemetry, deferred grading, feedback).</figcaption>
 </figure>
 
 Two things the straight-line view hides, and the diagram makes explicit:
