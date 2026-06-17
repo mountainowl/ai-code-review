@@ -232,6 +232,13 @@ def test_build_data_reads_readonly_db_with_hot_wal(isolated_root: Path) -> None:
     db_dir.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP)
     try:
         data = ui_export.build_data()
+        # Capture the main-DB state the moment the export returns, while
+        # ``keep_open`` is STILL OPEN. This isolates the export's effect: closing
+        # the last writer connection (in the finally below) checkpoints the hot
+        # WAL back into the main file, rewriting its bytes and mtime — a mutation
+        # by SQLite's close, NOT by the export. Asserting after close conflated
+        # the two and was platform-dependent (passed on macOS, failed on Linux).
+        db_after = (paths.DB.read_bytes(), paths.DB.stat().st_mtime_ns)
     finally:
         db_dir.chmod(0o755)
         paths.DB.chmod(0o644)
@@ -240,9 +247,10 @@ def test_build_data_reads_readonly_db_with_hot_wal(isolated_root: Path) -> None:
     # The WAL-only row must appear (proves -wal was copied), not silently lost.
     assert data["meta"]["db_present"] is True
     assert any(r["project"] == "wal/repo" for r in data["reviews"])
-    # The operator's main DB file is byte-for-byte unchanged (readers ran
-    # against a throwaway copy in a writable temp dir, never the original).
-    assert (paths.DB.read_bytes(), paths.DB.stat().st_mtime_ns) == db_before
+    # The operator's main DB file is byte-for-byte unchanged BY THE EXPORT
+    # (readers ran against a throwaway copy in a writable temp dir, never the
+    # original). Compared at db_after — before close() can checkpoint.
+    assert db_after == db_before
 
 
 def test_build_data_empty_skeleton_on_corrupt_db(isolated_root: Path) -> None:
