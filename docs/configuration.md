@@ -88,6 +88,21 @@ credentials live in that one TOML file.
       <td>Floor for the LLM's per-finding confidence (0.0–1.0). Findings below this score are dropped before posting or planning. Inclusive on the high side.</td>
     </tr>
     <tr>
+      <td><code>category_min_confidence</code></td>
+      <td><code>{}</code></td>
+      <td>Per-canonical-category confidence floors — a <code>[review.category_min_confidence]</code> table mapping a canonical category (e.g. <code>style</code>, <code>performance</code>) to a minimum confidence. A finding in that category must clear <code>max(min_confidence, floor)</code>; failing it is logged as <code>confidence_below_category_floor</code>. A floor only ever <em>raises</em> the bar. Empty = global <code>min_confidence</code> for every category. See <a href="#calibrated-per-class-confidence">Calibrated per-class confidence</a>.</td>
+    </tr>
+    <tr>
+      <td><code>calibrate_confidence</code></td>
+      <td><code>false</code></td>
+      <td>When <code>true</code>, additionally <em>derive</em> per-category floors from this repo's dispute history (folded onto the canonical category), so a class the team disputes more must be more confident to surface. Off by default; self-reinforcing like dispute suppression. Manual <code>category_min_confidence</code> entries win over a derived floor.</td>
+    </tr>
+    <tr>
+      <td><code>calibrate_max_confidence</code></td>
+      <td><code>0.97</code></td>
+      <td>Ceiling for a calibrated floor. Calibration interpolates from <code>min_confidence</code> (0% dispute) to this value (100% dispute) — kept below 1.0 so even a heavily-disputed class still admits a sufficiently confident finding. Only used when <code>calibrate_confidence</code> is on.</td>
+    </tr>
+    <tr>
       <td><code>allowed_kinds</code></td>
       <td><code>[]</code></td>
       <td>Whitelist of finding kinds to post. A finding is kept if its <code>severity</code>, <code>category</code>, or <code>type</code> appears here (case-insensitive). Empty list = no kind filter — post everything that clears <code>min_confidence</code>. Common values: <code>"blocking"</code>, <code>"non-blocking"</code>, <code>"security"</code>, <code>"correctness"</code>, <code>"performance"</code>, <code>"issue"</code>, <code>"suggestion"</code>.</td>
@@ -385,6 +400,57 @@ silently dropped. A finding with no explicit severity does **not** pass the gate
 > **Audit note.** Dispute-driven suppression (below) still keys on the *raw*
 > `category`, by design: its job is to learn which labels *your team* rejects, so
 > it must see the model's own words, not the normalized bucket.
+
+## Calibrated per-class confidence
+
+The global `min_confidence` (0.85) applies one bar to every finding. But a
+self-reported 0.9 means very different things for a `correctness` claim versus a
+`style` nit — weak models are reliably *overconfident* on trivia (the empirical
+run carried a `Missing Semicolon` at 0.9 and an `Unsigned Comparison` at 1.0).
+`[review].category_min_confidence` lets you set a **higher bar for noise-prone
+classes** without touching the rest:
+
+```toml
+[review.category_min_confidence]
+style = 0.95
+design = 0.95
+performance = 0.92
+# correctness / security keep the global 0.85
+```
+
+A finding must clear `max(min_confidence, its-category-floor)`; one that clears
+the global bar but falls under its category floor is dropped as
+`confidence_below_category_floor` (distinct from the global
+`confidence_below_threshold`, so you can see the per-class gate fire). Keys are
+**canonical** categories (see [Surface mode](#surface-mode-gate-vs-collaborate)
+for the taxonomy); an unknown key is a config error, not a silent no-op. A floor
+**only ever raises** the bar — one set below `min_confidence` is ignored.
+
+### Auto-calibration from dispute history
+
+Setting the floors by hand is the deterministic path. With
+`calibrate_confidence = true`, Bubo additionally **derives** them from this
+repo's own accept/dispute signal: a category the team disputes more earns a
+higher floor, linearly from `min_confidence` (0% disputed) up to
+`calibrate_max_confidence` (100% disputed), once a category has at least
+`dispute_suppress_min_samples` resolved outcomes. Manual
+`category_min_confidence` entries win over a derived floor for the same category.
+
+Two deliberate design points:
+
+- **Calibration aggregates on the _canonical_ category**, even though
+  dispute-*suppression* keys on the raw label. That split is intentional:
+  suppression learns the exact labels your team rejects; calibration needs the
+  dispute signal *un-fragmented*, or `test` / `testing` / `test-coverage` each
+  look too thin to ever clear the sample gate. The canonical fold sums them.
+- **Calibration is gentler than suppression.** Suppression stops a class from
+  posting at all; calibration only raises its confidence bar (capped below 1.0),
+  so a genuinely high-confidence finding in a disputed class still surfaces.
+
+Like suppression, calibration is **self-reinforcing** — raising a class's floor
+reduces its new outcomes, freezing the rate. The escape hatches are operator-
+side: lower `calibrate_max_confidence`, raise `dispute_suppress_min_samples`, or
+turn calibration off. It is **off by default**.
 
 ## Dispute-driven suppression
 

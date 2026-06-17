@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 
 from bubo.config_values import positive_int
 from bubo.hash_utils import stable_hash
@@ -331,6 +331,85 @@ def surface_predicate_for_mode(mode: str) -> Callable[[JsonObject], bool] | None
     return None
 
 
+def dispute_stats_by_canonical(raw_stats: Iterable[JsonObject]) -> list[JsonObject]:
+    """Fold raw per-category dispute stats into the canonical taxonomy.
+
+    The dispute reader (:func:`bubo.db.disputed_class_stats`) keys on the
+    reviewer's **raw** category — deliberately, so dispute-driven *suppression*
+    learns the exact labels a team rejects. But *calibration* must aggregate on
+    the **canonical** category: otherwise the same 33-variant fragmentation this
+    module exists to fix (``test`` vs ``testing`` vs ``test-coverage``) splits
+    one category's dispute signal across several thin buckets and no floor ever
+    accrues enough samples. This pure fold sums ``total``/``rejected`` across all
+    raw labels that normalize to the same canonical category.
+
+    Each input row is a mapping with ``category`` (raw), ``total``, and
+    ``rejected``. Returns ``{category, total, rejected, dispute_rate}`` dicts
+    keyed by canonical category, sorted by category for deterministic output.
+    """
+    agg: dict[str, list[int]] = {}
+    for row in raw_stats:
+        canon = normalize_category(row.get("category"))
+        total = int(row.get("total", 0) or 0)
+        rejected = int(row.get("rejected", 0) or 0)
+        bucket = agg.setdefault(canon, [0, 0])
+        bucket[0] += total
+        bucket[1] += rejected
+    return [
+        {
+            "category": canon,
+            "total": total,
+            "rejected": rejected,
+            "dispute_rate": (rejected / total) if total else 0.0,
+        }
+        for canon, (total, rejected) in sorted(agg.items())
+    ]
+
+
+def calibrated_category_floors(
+    canonical_stats: Iterable[JsonObject],
+    *,
+    base: float,
+    max_floor: float,
+    min_samples: int,
+) -> dict[str, float]:
+    """Derive per-canonical-category confidence floors from dispute history.
+
+    The data-driven populator for the ``category_floors`` mechanism: a category
+    the team disputes more earns a higher confidence bar, so noisy classes must
+    be *more* certain to surface. Linear in the dispute rate::
+
+        floor = base + dispute_rate * (max_floor - base)
+
+    so ``dispute_rate == 0`` leaves the floor at ``base`` (no change) and
+    ``dispute_rate == 1`` reaches ``max_floor``. Only categories with at least
+    ``min_samples`` resolved outcomes are calibrated (a thin signal is not
+    trusted), and only floors strictly above ``base`` are returned — a category
+    at the global floor needs no entry.
+
+    Deliberately **gentler than suppression**: calibration only *raises the
+    confidence bar*, it never zeroes a category out, so a genuinely
+    high-confidence finding in a disputed class still surfaces. Like
+    suppression it is self-reinforcing (raising a floor reduces that class's
+    new outcomes, freezing its rate); the escape hatch is operator-side —
+    lower ``max_floor`` / raise ``min_samples`` / disable calibration. Pure.
+    """
+    floors: dict[str, float] = {}
+    for row in canonical_stats:
+        total = int(row.get("total", 0) or 0)
+        if total < min_samples:
+            continue
+        rejected = int(row.get("rejected", 0) or 0)
+        rate = (rejected / total) if total else 0.0
+        floor = base + rate * (max_floor - base)
+        floor = min(max(floor, base), max_floor)
+        if floor > base:
+            category = row.get("category")
+            if isinstance(category, str) and category:
+                floors[category] = round(floor, 4)
+    return floors
+
+
 def extract_findings(raw: str, max_findings: int | None = None) -> list[JsonObject]:
     """Parse the reviewer subprocess's stdout into a list of finding objects.
 
@@ -421,6 +500,7 @@ def filter_findings_by_policy(
     *,
     min_confidence: float,
     allowed_kinds: Iterable[str] = (),
+    category_floors: Mapping[str, float] | None = None,
     surface_predicate: Callable[[JsonObject], bool] | None = None,
     suppressed_categories: Iterable[str] = (),
 ) -> tuple[list[JsonObject], list[tuple[JsonObject, str]]]:
@@ -430,10 +510,15 @@ def filter_findings_by_policy(
     the drop reason:
 
     1. **Confidence:** drop any finding whose ``confidence`` is missing,
-       not numeric, or strictly less than ``min_confidence``. Confidence
+       not numeric, or strictly less than the effective floor. Confidence
        values from the agent are floats in ``[0.0, 1.0]``; the threshold is
        inclusive on the high side so ``min_confidence=0.85`` accepts a
-       finding scored exactly ``0.85``.
+       finding scored exactly ``0.85``. When ``category_floors`` supplies a
+       floor for the finding's canonical category that is **higher** than
+       ``min_confidence``, that per-category floor is the bar instead and a
+       finding failing it is dropped as ``confidence_below_category_floor``
+       (the ``[review]`` calibrated-confidence lever). A per-category floor
+       only ever *raises* the bar — it never lowers it below ``min_confidence``.
     2. **Allowed kinds:** if ``allowed_kinds`` is non-empty, a finding must
        have **at least one** of its ``severity``, ``category``, or ``type``
        fields (case-insensitive) appear in the allowlist. An empty
@@ -466,6 +551,13 @@ def filter_findings_by_policy(
     allowed_kinds:
         Lowercase set of allowed severity/category/type values. Empty
         means "no kind filter".
+    category_floors:
+        Optional mapping of canonical category -> minimum confidence. A
+        finding in that category must clear ``max(min_confidence, floor)``.
+        ``None`` (the default) means "global ``min_confidence`` for every
+        category" — the pre-calibration behavior. Build it from the
+        operator's manual ``[review.category_min_confidence]`` table and/or
+        :func:`calibrated_category_floors`.
     surface_predicate:
         Optional callable run per finding; a falsey return drops it with
         reason ``"surface_mode_excluded"``. ``None`` (the default) skips this
@@ -483,9 +575,10 @@ def filter_findings_by_policy(
         ``(kept, dropped)``. ``kept`` is the filtered list in original
         order. ``dropped`` is a list of ``(finding, reason)`` tuples where
         ``reason`` is one of ``"confidence_below_threshold"``,
-        ``"kind_not_allowed"``, ``"surface_mode_excluded"``, or
-        ``"disputed_class_suppressed"`` — useful for logging and metrics so an
-        operator can see *why* a real finding got swallowed.
+        ``"confidence_below_category_floor"``, ``"kind_not_allowed"``,
+        ``"surface_mode_excluded"``, or ``"disputed_class_suppressed"`` —
+        useful for logging and metrics so an operator can see *why* a real
+        finding got swallowed.
     """
     allowed = {kind.strip().lower() for kind in allowed_kinds if kind}
     suppressed = {kind.strip().lower() for kind in suppressed_categories if kind}
@@ -493,9 +586,23 @@ def filter_findings_by_policy(
     dropped: list[tuple[JsonObject, str]] = []
     for finding in findings:
         confidence = _finding_confidence(finding)
+        # Global confidence gate first: a missing/non-numeric or below-floor
+        # score is dropped as ``confidence_below_threshold`` regardless of any
+        # per-category floor — the global bar is what kills it.
         if confidence is None or confidence < min_confidence:
             dropped.append((finding, "confidence_below_threshold"))
             continue
+        # Per-category floor (the calibrated-confidence lever): a finding that
+        # cleared the global bar but falls under its canonical category's
+        # (higher) floor is dropped with a distinct reason, so the per-class
+        # gate is visible to an operator. A floor only ever *raises* the bar —
+        # one set at or below ``min_confidence`` is a no-op here because the
+        # finding already cleared it above.
+        if category_floors:
+            cat_floor = category_floors.get(finding_canonical_category(finding))
+            if cat_floor is not None and confidence < cat_floor:
+                dropped.append((finding, "confidence_below_category_floor"))
+                continue
         if allowed and not _finding_matches_kinds(finding, allowed):
             dropped.append((finding, "kind_not_allowed"))
             continue
