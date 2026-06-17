@@ -23,3 +23,7 @@ site/
 # benchmark run output
 benchmarks/report.md
 benchmarks/report.json
+
+# tool-comparison study + ops notes — KEEP PRIVATE (benchmark findings, competitor
+# comps, postmortems; do not publish/PR)
+research/
