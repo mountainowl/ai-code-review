@@ -4,44 +4,48 @@
 [![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-3776ab?logo=python&logoColor=white)](https://github.com/mountainowl/bubo/blob/main/pyproject.toml)
 [![Docker: GHCR](https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/mountainowl/bubo/pkgs/container/bubo)
 [![CI](https://github.com/mountainowl/bubo/actions/workflows/ci.yml/badge.svg)](https://github.com/mountainowl/bubo/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mountainowl/bubo/badge)](https://scorecard.dev/viewer/?uri=github.com/mountainowl/bubo)
+[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/mountainowl/bubo?label=OpenSSF%20Scorecard)](https://scorecard.dev/viewer/?uri=github.com/mountainowl/bubo)
+[![Signed with cosign](https://img.shields.io/badge/release-cosign%20signed-2bb4ab?logo=sigstore&logoColor=white)](https://github.com/mountainowl/bubo/releases)
+[![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Managed with uv](https://img.shields.io/badge/managed%20with-uv-2f3542)](https://github.com/astral-sh/uv)
 [![Docs](https://img.shields.io/badge/docs-mountainowl.github.io%2Fbubo-4f62ad)](https://mountainowl.github.io/bubo/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111827)](https://github.com/mountainowl/bubo/blob/main/LICENSE)
 
-> **Agentic AI code review — with the LLM of your choice.**
+## Enterprise Grade Compliant Agentic AI code reviews**
+- Self-hosted
+- Bring-your-own-LLM
+- Supports GitLab & GitHub
+- Direct inline comments
+- Governance, provenance & audit 
+- OpenTelemetry metrics
 
-[Bubo](https://en.wikipedia.org/wiki/Bubo_(genus)) is the genus of the great
-horned and eagle owls — patient night hunters that sit silent, see in the dark,
-and strike only when sure. Code review, same idea: Bubo reviews your GitLab MRs
-and GitHub PRs with **the LLM you choose** (Codex, Claude, or any model your CLI
-drives) and posts only the findings worth acting on as inline threads — no
-chatbot noise, no praise, no summaries.
+> [Bubo](https://en.wikipedia.org/wiki/Bubo_(genus)) is the genus of the `great
+horned and eagle owls` — patient night hunters that sit silent, see in the dark,
+and strike only when sure. 
+
+Code review is the exact same idea. Bubo reviews your code commits with **the LLM you choose** (Codex, Claude, or any model your CLI
+drives) and posts only the findings worth acting on as inline threads — no chatbot noise, no praise, no summaries.
 
 ## Features at a glance
 
 | | |
 |---|---|
-| 🧠 **Bring your own LLM** | Codex, Claude, or any model your CLI drives — no vendor lock-in. |
-| 🔒 **Self-hosted** | Code, diffs, and review data stay on your infrastructure. |
-| 🔀 **GitLab + GitHub** | MRs and PRs, one config, identical behavior on both. |
-| 🎯 **Signal over noise** | Only actionable inline findings; one "all good" ack on a clean change. |
-| 🎭 **Moods** | Pick the review voice — terse / collaborative / socratic / formal / casual. |
-| 📉 **Learns your taste** | Suppresses finding-classes your team repeatedly disputes. |
-| ✅ **Verify before posting** | Optional "is this real?" passes drop findings that don't hold up. |
-| 🛡️ **Governance-ready** | AI-code provenance, rigor modulation, auditable on-prem report. |
-| 🔌 **MCP + CI** | Built-in `bubo-mcp` server + a GitHub Action to review PRs in CI. |
+| 🧠 *Bring your own LLM* | Codex, Claude, or any model your CLI drives — no vendor lock-in. |
+| 🔒 *Self-hosted* | Code, diffs, and review data stay on your infrastructure. |
+| 🔀 *GitLab/GitHub* | MRs and PRs, one config, identical behavior on both. |
+| 🎯 *Signal over noise* | Only actionable inline findings; one "all good" ack on a clean change. |
+| 🎭 *Moods* | Pick the review voice — terse / collaborative / socratic / formal / casual. |
+| 📉 *Learns you** | Suppresses finding-classes you and your team repeatedly disputes. |
+| ✅ *Verify before posting* | Optional "is this real?" passes drop findings that don't hold up. |
+| 🛡️ *Compliance & Governance-ready* | AI-code provenance, rigor modulation, auditable on-prem report. |
+| 🔌 *MCP + CI* | Built-in `bubo-mcp` server + a GitHub Action to review PRs in CI. |
 
 ## 📖 Documentation
 
-**Rendered docs live at → [mountainowl.github.io/bubo](https://mountainowl.github.io/bubo/)**
-— the canonical reference. The `docs/*.md` files below are its source; this README
-is a teaser.
+**Live documentation → [mountainowl.github.io/bubo](https://mountainowl.github.io/bubo/)**
 
-👉 New here? The **[Recipes](https://mountainowl.github.io/bubo/recipes/)**
-([docs/recipes.md](https://github.com/mountainowl/bubo/blob/main/docs/recipes.md)) are copy-paste setups for GitLab and
-GitHub, using Codex (the bundled default) or Claude as the review agent.
+> 👉 New here? Try the quick copy/paste **[Recipes](https://mountainowl.github.io/bubo/recipes/)**
 
 ## What a review looks like
 

@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.23.0](https://github.com/mountainowl/bubo/compare/v0.22.0...v0.23.0) (2026-06-17)
+
+
+### Features
+
+* **review:** operator-configurable precision levers (category taxonomy, mode presets, calibrated confidence) ([#119](https://github.com/mountainowl/bubo/issues/119)) ([f66bf6d](https://github.com/mountainowl/bubo/commit/f66bf6da8b07fc4715657fa747dc8ba7f4cea287))
+
+## [0.22.0](https://github.com/mountainowl/bubo/compare/v0.21.3...v0.22.0) (2026-06-17)
+
+
+### Features
+
+* **ui:** read-only operator UI v1 (static Svelte export) ([#117](https://github.com/mountainowl/bubo/issues/117)) ([a519edc](https://github.com/mountainowl/bubo/commit/a519edcac6e4b9ebec3dffa0f98732783a50461c))
+
+## [0.21.3](https://github.com/mountainowl/bubo/compare/v0.21.2...v0.21.3) (2026-06-17)
+
+
+### Documentation
+
+* complete the badge work — cosign + SLSA L3 badges, subtitle, docs mirror ([#114](https://github.com/mountainowl/bubo/issues/114)) ([5382e30](https://github.com/mountainowl/bubo/commit/5382e30d452f7c63a4cf137c558f9265b761bd71))
+
+## [0.21.2](https://github.com/mountainowl/bubo/compare/v0.21.1...v0.21.2) (2026-06-17)
+
+
+### Bug Fixes
+
+* **scm:** restore GitLab inline posting after the bin/ launcher removal ([#111](https://github.com/mountainowl/bubo/issues/111)) ([c20082e](https://github.com/mountainowl/bubo/commit/c20082efdb36415c8169cc2725098de33f5b6bd5))
+
 ## [0.21.1](https://github.com/mountainowl/bubo/compare/v0.21.0...v0.21.1) (2026-06-16)
 
 
