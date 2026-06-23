@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from bubo.analytics_config import AnalyticsConfig, analytics_config_from_dict
 from bubo.config_values import (
     ConfigError,
     bool_value,
@@ -157,6 +158,12 @@ class ReviewConfig:
         Reserved for a future "post one summary comment per MR" path.
     telemetry_config:
         Parsed :class:`TelemetryConfig` block.
+    analytics_config:
+        Parsed :class:`~bubo.analytics_config.AnalyticsConfig` block — the
+        anonymous, **on-by-default** usage analytics ("help improve Bubo").
+        Sends numbers only (no code, paths, repo names, or text); opt out via
+        ``[analytics] enabled = false``, ``BUBO_ANALYTICS=0``, or
+        ``DO_NOT_TRACK=1``. See :mod:`bubo.analytics`.
     governance_config:
         Parsed :class:`~bubo.governance_config.GovernanceConfig` block —
         the opt-in, off-by-default AI-provenance / governance surface. In its
@@ -305,6 +312,7 @@ class ReviewConfig:
     llm_base_url: str | None = None
     post_summary: bool = False
     telemetry_config: TelemetryConfig = field(default_factory=TelemetryConfig)
+    analytics_config: AnalyticsConfig = field(default_factory=AnalyticsConfig)
     governance_config: GovernanceConfig = field(default_factory=GovernanceConfig)
     projects: list[str] = field(default_factory=list)
     min_confidence: float = DEFAULT_MIN_CONFIDENCE
@@ -448,6 +456,7 @@ def review_config_from_dict(
         model_effort=_agent_model_effort(agent, log_event),
         llm_base_url=str(agent["llm_base_url"]) if agent.get("llm_base_url") else None,
         telemetry_config=telemetry_config,
+        analytics_config=analytics_config_from_dict(raw),
         governance_config=governance_config_from_dict(raw),
         projects=[
             item["path"]

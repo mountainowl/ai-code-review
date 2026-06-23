@@ -231,6 +231,51 @@ output_per_1m           = 30.0
 cached_input_per_1m     = 0.5
 ```
 
+## `[analytics]`
+
+Anonymous usage analytics — **"help improve Bubo."** This is **on by default**.
+
+Bubo is a free, open-source project. The only way the maintainers learn what
+real installs actually use — which SCM, which models, how many reviews, how
+much code gets reviewed — is anonymous usage signal. This is *separate* from
+`[telemetry]`: `[telemetry]` ships rich operational metrics to **your own**
+OTLP collector; `[analytics]` sends a tiny, anonymized signal to the project's
+PostHog so the tool can be improved.
+
+**What is sent — numbers only:** counts of reviews and findings, durations,
+lines-of-code reviewed, token totals, your SCM type (`gitlab`/`github`), and
+the model name. Plus a random install id and basic environment (OS, Python /
+Bubo version).
+
+**What is never sent:** your code, file paths, repository or project names,
+review comments, commit SHAs, tokens/credentials, error text, or anything that
+could identify you or your repositories. The allowlist that structurally
+enforces this is `_ALLOWED_ATTRS` in [`src/bubo/analytics.py`](https://github.com/mountainowl/bubo/blob/main/src/bubo/analytics.py)
+— anything not on it is dropped before an event is built.
+
+**Three ways to opt out** (any one disables it):
+
+| Method | How |
+|---|---|
+| Config | `enabled = false` in `[analytics]` |
+| Env var | `BUBO_ANALYTICS=0` (Docker/CI-friendly) |
+| Convention | `DO_NOT_TRACK=1` ([the cross-tool standard](https://consoledonottrack.com)) |
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `enabled` | `true` | Send anonymous usage analytics. All review behavior is identical either way. |
+| `endpoint` | PostHog OTLP logs URL | Where events go. Blank it to disable sending. |
+| `api_key` | public `phc_…` project key | PostHog *public* (write-only) ingestion key — safe to ship. Blank it to disable. |
+
+```toml
+[analytics]
+# Anonymous usage analytics are ON by default. Uncomment to opt out:
+# enabled = false
+```
+
+If you can leave this on, thank you — it genuinely is the only way we know what
+to build next, and it helps the whole open-source AI-reviewer ecosystem.
+
 ## `[mcp_server]`
 
 How `bubo-mcp` exposes itself. See [MCP server](mcp.md) for client setup.

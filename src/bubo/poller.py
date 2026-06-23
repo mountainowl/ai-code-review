@@ -46,7 +46,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from bubo import github, gitlab, paths
+from bubo import analytics, github, gitlab, paths
 from bubo.config_values import ConfigError
 from bubo.db import (
     already_seen,
@@ -56,7 +56,10 @@ from bubo.db import (
     disputed_finding_classes,
     finding_seen,
     init_db,
+    latency_summary,
     latest_reviewed_row,
+    metrics_summary,
+    outcomes_summary,
     posted_findings_for_outcome_sync,
     prompt_version,
     record_finding_outcome,
@@ -483,6 +486,9 @@ def poll() -> int:
         inflight_cap=inflight_cap,
         max_merge_requests_per_poll=cfg.max_merge_requests_per_poll,
     )
+    analytics.record_session_start(
+        cfg.analytics_config, scm_provider=cfg.provider, projects_count=len(cfg.projects)
+    )
     if inflight >= inflight_cap:
         log(
             "poll_throttled_inflight",
@@ -528,6 +534,8 @@ def poll() -> int:
                 return queued
     if queued == 0:
         log("no_pending_reviews", poll_run_id=poll_run_id)
+    emit_usage_snapshot(cfg)
+    analytics.flush()
     log("poll_done", poll_run_id=poll_run_id, queued=queued)
     return queued
 
@@ -573,6 +581,51 @@ def emit_finding_metric(
     """Forward one finding-lifecycle event to OTel if telemetry is enabled."""
     if telemetry and telemetry.config.emit_finding_events:
         telemetry.record_finding(repo=repo, status=status, finding=finding, dry_run=dry_run)
+
+
+def changed_loc(
+    provider: ScmProvider,
+    cfg: ReviewConfig,
+    token: str,
+    project: str,
+    number: int,
+) -> tuple[int | None, int | None]:
+    """Best-effort ``(files_changed, lines_changed)`` for anonymous analytics.
+
+    Sums the provider's added-line counts (the same changed-line map the
+    poster uses for position mapping). Returns ``(None, None)`` on any failure
+    — analytics must never break a review, and an unknown count must not
+    masquerade as zero.
+    """
+    try:
+        changed = provider.changed_lines(cfg, token, project, number)
+    except Exception:
+        return None, None
+    files = len(changed)
+    lines = sum(len(entry.get("new_lines") or ()) for entry in changed.values())
+    return files, lines
+
+
+def emit_usage_snapshot(cfg: ReviewConfig) -> None:
+    """Emit one anonymized rolled-up snapshot from the SQLite aggregate readers.
+
+    Numbers only, across all projects (``project=None``); see
+    :func:`bubo.analytics.record_usage_snapshot`. Best-effort — a reader error
+    (e.g. a fresh DB) is swallowed so a poll cycle never fails on analytics.
+    """
+    try:
+        summary = metrics_summary(readonly=True)
+        outcomes = outcomes_summary()
+        latency = latency_summary()
+    except Exception:
+        return
+    analytics.record_usage_snapshot(
+        cfg.analytics_config,
+        scm_provider=cfg.provider,
+        summary=summary,
+        outcomes=outcomes,
+        latency=latency,
+    )
 
 
 def _position_file(position: JsonObject) -> Any:
@@ -1117,6 +1170,8 @@ def worker(job: Path) -> int:
     tokens = TokenUsage()
     cost_usd = 0.0
     repo: Path | None = None
+    files_changed: int | None = None
+    lines_changed: int | None = None
     try:
         cfg = read_config()
         provider = get_provider(cfg)
@@ -1152,6 +1207,10 @@ def worker(job: Path) -> int:
             repo = paths.WORK / slug(project) / str(iid) / sha[:12]
             with telemetry.span("llm_review.checkout", repo=project, sha=sha):
                 provider.checkout(cfg, project, mr, repo)
+            # Anonymous LoC for analytics — computed ONLY when analytics is
+            # enabled, so an opted-out user pays no extra API round-trip.
+            if analytics.analytics_enabled(cfg.analytics_config):
+                files_changed, lines_changed = changed_loc(provider, cfg, token, project, iid)
             # Opt-in governance (off by default). Captures provenance and
             # evaluates the policy gate; returns a heightened-scrutiny directive
             # to inject into the prompt when the change escalates. No-op + no API
@@ -1262,6 +1321,27 @@ def worker(job: Path) -> int:
                 cost_usd=cost_usd,
                 tone=cfg.tone,
             )
+            analytics.record_review_completed(
+                cfg.analytics_config,
+                scm_provider=cfg.provider,
+                agent=analytics.agent_label(cfg.reviewer_command),
+                model=model,
+                status=str(status),
+                dry_run=cfg.dry_run,
+                review_mode=str(ReviewMode.DIFF),
+                tone=cfg.tone,
+                duration_seconds=round(time.monotonic() - started, 2),
+                tokens_input=tokens.input,
+                tokens_output=tokens.output,
+                tokens_cached=tokens.cached,
+                tokens_total=tokens.total,
+                cost_usd=cost_usd,
+                findings_posted=posted,
+                findings_planned=planned,
+                findings_skipped=skipped,
+                files_changed=files_changed,
+                lines_changed=lines_changed,
+            )
             log(
                 "review_done",
                 project=project,
@@ -1311,6 +1391,28 @@ def worker(job: Path) -> int:
                 cost_usd=cost_usd,
                 tone=cfg.tone if cfg is not None else None,
             )
+        if cfg is not None:
+            analytics.record_review_completed(
+                cfg.analytics_config,
+                scm_provider=cfg.provider,
+                agent=analytics.agent_label(cfg.reviewer_command),
+                model=model,
+                status=str(ReviewStatus.FAILED),
+                dry_run=cfg.dry_run,
+                review_mode=str(ReviewMode.DIFF),
+                tone=cfg.tone,
+                duration_seconds=round(time.monotonic() - started, 2),
+                tokens_input=tokens.input,
+                tokens_output=tokens.output,
+                tokens_cached=tokens.cached,
+                tokens_total=tokens.total,
+                cost_usd=cost_usd,
+                findings_posted=0,
+                findings_planned=0,
+                findings_skipped=0,
+                files_changed=files_changed,
+                lines_changed=lines_changed,
+            )
         log(
             "review_failed",
             project=project,
@@ -1324,6 +1426,7 @@ def worker(job: Path) -> int:
     finally:
         if repo is not None:
             cleanup_worktree(repo)
+        analytics.flush()
 
 
 # ---------------------------------------------------------------------------
