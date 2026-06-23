@@ -355,6 +355,30 @@ No findings for optional categories: []
         self.assertNotIn("OPENAI_API_KEY", env)
         self.assertNotIn("ANTHROPIC_API_KEY", env)
 
+    def test_reviewer_env_strips_llm_key_without_base_url(self):
+        # Default (no base_url): the LLM key never reaches the agent env — it
+        # authenticates via its own login. This is the anti-exfiltration default.
+        source = {"PATH": "/usr/bin", "LLM_API_KEY": "k", "LLM_BASE_URL": ""}
+        env = poller.reviewer_env(source, ReviewConfig())
+        self.assertNotIn("LLM_API_KEY", env)
+        self.assertNotIn("LLM_BASE_URL", env)
+
+    def test_reviewer_env_passes_llm_key_only_in_base_url_mode(self):
+        # base_url mode: a custom OpenAI-compatible endpoint reads the key from
+        # the env at request time, so exactly LLM_API_KEY + LLM_BASE_URL are let
+        # through — and nothing else.
+        source = {
+            "PATH": "/usr/bin",
+            "LLM_API_KEY": "k",
+            "LLM_BASE_URL": "https://gw/v1",
+            "GITLAB_TOKEN": "secret",
+        }
+        cfg = ReviewConfig(llm_base_url="https://gw/v1")
+        env = poller.reviewer_env(source, cfg)
+        self.assertEqual("k", env["LLM_API_KEY"])
+        self.assertEqual("https://gw/v1", env["LLM_BASE_URL"])
+        self.assertNotIn("GITLAB_TOKEN", env)
+
     def test_fork_worker_closes_parent_log_handle(self):
         class FakeLog:
             closed = False

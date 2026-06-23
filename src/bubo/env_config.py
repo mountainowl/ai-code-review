@@ -185,8 +185,12 @@ def runtime_env(root: Path, cfg: dict[str, Any]) -> dict[str, str]:
         # state_dir; paths.py reads it at import time. Always exported so
         # forked workers inherit the same view.
         "BUBO_BASE_DIR": str(base_dir),
-        "REVIEW_MODEL": str(agent.get("llm_model", "gpt-5.5")),
-        "REVIEW_REASONING_EFFORT": str(agent.get("reasoning_effort", "medium")),
+        # Standardized LLM knobs. LLM_MODEL_EFFORT falls back to the deprecated
+        # `reasoning_effort` key so existing configs keep working.
+        "LLM_MODEL": str(agent.get("llm_model", "gpt-5.5")),
+        "LLM_MODEL_EFFORT": str(
+            agent.get("llm_model_effort") or agent.get("reasoning_effort") or "medium"
+        ),
         "REVIEW_DRY_RUN": _bool_text(manual_dry_run),
         "POLL_INTERVAL_SECONDS": str(int(poller.get("interval_seconds", 900))),
         "CODEX_REVIEW_PROFILE": str(agent.get("codex_profile", "bubo")),
@@ -194,6 +198,10 @@ def runtime_env(root: Path, cfg: dict[str, Any]) -> dict[str, str]:
         "GITLAB_API_URL": str(gitlab.get("api_url", f"{gitlab_url}/api/v4")),
         "GITHUB_API_URL": str(github.get("api_url", "https://api.github.com")),
     }
+    # Custom OpenAI-compatible endpoint (optional). Its presence is what flips
+    # bubo into "base_url mode" (see reviewer_env / the Codex model-provider block).
+    if agent.get("llm_base_url"):
+        exports["LLM_BASE_URL"] = str(agent["llm_base_url"])
     if gitlab.get("bot_username"):
         exports["BUBO_GITLAB_USERNAME"] = str(gitlab["bot_username"])
     if github.get("bot_username"):
@@ -247,9 +255,10 @@ def credential_env(cfg: dict[str, Any]) -> dict[str, str]:
         # Generic name first — every wrapper that honors it falls back here.
         for env_key in LLM_API_KEY_ENV_KEYS:
             exports[env_key] = value
-        # Operator-named variable for the LLM CLI actually in use. No
-        # provider is inferred; the operator declares the name. Blank /
-        # whitespace-only is treated as unset.
+        # Deprecated: `llm_api_key_env` named an extra env var to expose the key
+        # under. The agent now authenticates via its own login (set up by
+        # `bubo init`), so this is no longer needed — but it is still honored
+        # when present so existing configs keep working. Blank = unset.
         key_env = agent.get("llm_api_key_env")
         if isinstance(key_env, str) and key_env.strip():
             exports[key_env.strip()] = value

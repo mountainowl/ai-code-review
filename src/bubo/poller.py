@@ -161,7 +161,7 @@ REVIEWER_ENV_ALLOWLIST = {
 # ---------------------------------------------------------------------------
 
 
-def reviewer_env(source: Mapping[str, str]) -> dict[str, str]:
+def reviewer_env(source: Mapping[str, str], cfg: ReviewConfig | None = None) -> dict[str, str]:
     """Build the env dict for the agent subprocess.
 
     Filters ``source`` through :data:`REVIEWER_ENV_ALLOWLIST` — dropping
@@ -170,9 +170,21 @@ def reviewer_env(source: Mapping[str, str]) -> dict[str, str]:
     MCP server the agent spawns via ``bin/bubo`` resolves the install
     root. The review prompt (with its contract + findings cap) is passed to
     the agent as a command argument, not via the environment.
+
+    **base_url exception:** a custom OpenAI-compatible endpoint
+    (``cfg.llm_base_url``) reads the API key from the environment at request
+    time — there is no login flow to stash it in ``auth.json``. So, and *only*
+    when a base URL is configured, exactly ``LLM_API_KEY`` and ``LLM_BASE_URL``
+    are let through the allowlist. This deliberately re-exposes one credential
+    to the agent, which is why it is gated on the operator opting into a base
+    URL rather than widening the static allowlist for everyone.
     """
     env = {key: value for key, value in source.items() if key in REVIEWER_ENV_ALLOWLIST}
     env["BUBO_ROOT"] = str(ROOT)
+    if cfg is not None and cfg.llm_base_url:
+        for name in ("LLM_API_KEY", "LLM_BASE_URL"):
+            if source.get(name):
+                env[name] = source[name]
     return env
 
 
@@ -196,7 +208,7 @@ def run_verification(finding: JsonObject, repo: Path | None, cfg: ReviewConfig) 
     verdicts: list[Verdict] = []
     if not command:
         return verdicts
-    env = reviewer_env(os.environ)
+    env = reviewer_env(os.environ, cfg)
     for lens in cfg.verify_lenses:
         prompt = build_verification_prompt(finding, lens=lens)
         try:
@@ -1156,7 +1168,7 @@ def worker(job: Path) -> int:
                     telemetry=telemetry,
                 )
             extra_directive = governance[1] if governance else ""
-            env = reviewer_env(os.environ)
+            env = reviewer_env(os.environ, cfg)
             with telemetry.span("llm_review.agent", repo=project, model=model) as agent_span:
                 result = run(
                     [

@@ -18,17 +18,22 @@ inherit = "all"
 # Codex does NOT auto-load `~/.codex/<NAME>.config.toml` for `--profile`,
 # despite what the filename suggests. Edits here change every review run
 # on this host.
+# model / model_reasoning_effort are filled in by `bubo init` from
+# [agents].llm_model / llm_model_effort (LLM_MODEL / LLM_MODEL_EFFORT). When
+# [agents].llm_base_url is set, init also points this profile at a custom
+# OpenAI-compatible provider (see the [model_providers.bubo] block at the end).
 [profiles.bubo]
-model = "gpt-5.5"
-model_reasoning_effort = "medium"
+model = "{{LLM_MODEL}}"
+model_reasoning_effort = "{{LLM_MODEL_EFFORT}}"
 model_reasoning_summary = "none"
 model_verbosity = "low"
-review_model = "gpt-5.5"
+review_model = "{{LLM_MODEL}}"
 approval_policy = "never"
 sandbox_mode = "read-only"
 web_search = "disabled"
 project_doc_max_bytes = 8192
 hide_agent_reasoning = true
+{{MODEL_PROVIDER_LINE}}
 
 [marketplaces.llm-code-review]
 last_updated = "2026-05-20T20:11:22Z"
@@ -54,3 +59,5 @@ startup_timeout_sec = 20
 # the underlying reviewer_command subprocess. The read-only metrics
 # tools complete in milliseconds so the long ceiling costs nothing.
 tool_timeout_sec = 1800
+
+{{MODEL_PROVIDER_BLOCK}}
