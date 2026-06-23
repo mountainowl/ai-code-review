@@ -32,11 +32,10 @@ Used when `provider = "gitlab"`.
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `url` | `https://gitlab.com` | Web host the poller reads MRs from. For self-hosted GitLab, keep `api_url` on the same host. |
-| `api_url` | `https://gitlab.com/api/v4` | REST API endpoint used by the GitLab MCP tools inside the review agent. |
+| `url` | `https://gitlab.com` | Web host the poller reads MRs from and clones over HTTPS. For self-hosted GitLab, keep `api_url` on the same host. |
+| `api_url` | `https://gitlab.com/api/v4` | REST API endpoint the poller reads MRs, diffs, and outcomes from. |
 | `bot_username` | `bubo` | Bot account name on posted threads; lets outcome sync tell bot comments from developer replies. |
-| `denied_tools_regex` | `^(delete_.*\|merge_merge_request\|push_files)$` | Blocks dangerous GitLab MCP tools even if the agent can see them. |
-| `token` | unset | GitLab token with `api` scope. Exported as `GITLAB_TOKEN`, `GITLAB_PERSONAL_ACCESS_TOKEN`, and `GLAB_TOKEN`. |
+| `token` | unset | GitLab token with `api` scope. Used for the REST API and as the `git clone` credential (sent per-call as an auth header, never written to `.git/config`). |
 
 ```toml
 [gitlab]
@@ -48,14 +47,14 @@ token        = "${GITLAB_TOKEN}"   # api scope; keep the real value in the envir
 
 ## `[github]`
 
-Used when `provider = "github"`. Needs the `gh` CLI (checkout) and a GitHub MCP
-server on `PATH` (inline comments; falls back to REST otherwise).
+Used when `provider = "github"`. Needs only `git` on `PATH`; checkout, diffs,
+posting, and outcome sync all go through the REST API.
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `api_url` | `https://api.github.com` | REST API base. Use `https://<host>/api/v3` for GitHub Enterprise Server. |
+| `api_url` | `https://api.github.com` | REST API base. Use `https://<host>/api/v3` for GitHub Enterprise Server. The web host bubo clones from is derived from this. |
 | `bot_username` | `bubo` | Bot account name on review comments; lets outcome sync separate bot comments from replies. |
-| `token` | unset | GitHub token with pull-request read+write. Exported as `GITHUB_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN`, and `GH_TOKEN`. |
+| `token` | unset | GitHub token with pull-request read+write. Used for the REST API and as the `git clone` credential (sent per-call as an auth header, never written to `.git/config`). |
 
 ```toml
 [github]
@@ -156,10 +155,11 @@ Review-agent CLI configuration.
 | Setting | Default | Purpose |
 |---|---|---|
 | `prompt_file` | `prompts/00-meta.md` | Meta prompt rendered before each review. |
-| `llm_model` | `gpt-5.5` | Model passed to the review wrapper. Keep `[telemetry]` pricing aligned for cost metrics. |
-| `llm_api_key` | unset | API key for whatever LLM you review with. Exported as `LLM_API_KEY` plus the name in `llm_api_key_env`. |
-| `llm_api_key_env` | `OPENAI_API_KEY` | The env-var name your LLM CLI reads the key from — `ANTHROPIC_API_KEY` (Claude), `GEMINI_API_KEY` (Gemini), etc. Bubo is model-agnostic and does not guess it. |
-| `reasoning_effort` | `medium` | `low` / `medium` / `high`. Higher is more thorough but costs more and runs longer. |
+| `llm_model` | `gpt-5.5` | Model for the review. `bubo init` templates it into the agent profile (so it actually drives the model — re-run init after changing it) and labels cost metrics. Keep `[telemetry]` pricing aligned. |
+| `llm_model_effort` | `medium` | `low` / `medium` / `high`. Higher is more thorough but slower and costlier. Templated into the agent profile by `bubo init`. (Back-compat: the old `reasoning_effort` key is still read.) |
+| `llm_api_key` | unset | API key for the LLM you review with. Exported as `LLM_API_KEY`. How it reaches the agent depends on `llm_base_url` — see [LLM auth](#llm-auth) below. |
+| `llm_base_url` | unset | Custom OpenAI-compatible endpoint (in-house gateway/proxy/local server). When set, `bubo init` points the Codex profile at it and the key is passed to the agent's environment. See [LLM auth](#llm-auth). |
+| `llm_api_key_env` | *(deprecated)* | No longer needed — the agent authenticates via its own login. Still honored when present so existing configs keep working; prefer removing it. |
 | `dry_run` | `true` | Dry-run hint exported to the agent as `REVIEW_DRY_RUN`, separate from `[review].dry_run` (which controls poster posting). |
 | `codex_profile` | `bubo` | Codex profile used by the Codex wrapper. |
 | `codex_sandbox` | `read-only` | Filesystem access for Codex review runs. See [Troubleshooting](troubleshooting.md) for the bubblewrap/AppArmor caveat. |
@@ -170,13 +170,35 @@ Review-agent CLI configuration.
 [agents]
 prompt_file      = "prompts/00-meta.md"
 llm_model        = "gpt-5.5"
+llm_model_effort = "medium"
 llm_api_key      = "${LLM_API_KEY}"
-llm_api_key_env  = "OPENAI_API_KEY"   # ANTHROPIC_API_KEY for Claude, etc.
-reasoning_effort = "medium"
+# llm_base_url   = "https://llm.internal.example/v1"   # custom OpenAI-compatible endpoint
 codex_profile    = "bubo"
 codex_sandbox    = "read-only"
 post_no_findings_comment = true
 ```
+
+### LLM auth
+
+You set **one** secret — `llm_api_key` (typically `"${LLM_API_KEY}"`, kept in the
+environment, not on disk). How it authenticates the review agent depends on
+whether you point at a custom endpoint:
+
+- **Default (no `llm_base_url`).** The review agent authenticates with its **own
+  login**, not an injected env var — so the key is *never* placed in the agent's
+  environment (the primary anti-exfiltration defense; the reviewer subprocess
+  runs under a strict env allowlist). Authenticate the CLI once with your key,
+  e.g. Codex: `codex login --with-api-key` (reads the key on stdin). The
+  `bubo` GitHub Action does this for you.
+- **Custom endpoint (`llm_base_url` set).** An OpenAI-compatible endpoint reads
+  the key from the environment at request time, so in this mode — and only this
+  mode — `LLM_API_KEY` and `LLM_BASE_URL` are passed through the allowlist to the
+  agent, and `bubo init` writes a `[model_providers]` block into the Codex
+  profile. **Security note:** this deliberately re-exposes one credential to the
+  agent's environment; leave `llm_base_url` empty unless you need it.
+
+`bubo` does not guess a provider-specific env-var name from the model — the old
+`llm_api_key_env` knob is deprecated and no longer required.
 
 ## `[telemetry]`
 
@@ -642,9 +664,9 @@ token = "${GITLAB_TOKEN}"      # personal-access token, api scope
 dry_run = true                 # plan only; flip to false once a real review looks right
 
 [agents]
-llm_model       = "gpt-5.5"
-llm_api_key     = "${LLM_API_KEY}"
-llm_api_key_env = "OPENAI_API_KEY"   # ANTHROPIC_API_KEY for Claude, etc.
+llm_model        = "gpt-5.5"
+llm_model_effort = "medium"
+llm_api_key      = "${LLM_API_KEY}"   # authenticate the agent CLI with this (see "LLM auth")
 
 [[projects]]
 path    = "group/repo"

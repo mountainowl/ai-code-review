@@ -48,33 +48,21 @@ sudo apt install -y git
 # are platform-agnostic (npm / shell installer / config file).
 ```
 
-## Per-provider — required for the provider you enable in `[scm].provider`
+## Per-provider
 
-| Provider | Tools | macOS | Linux |
-|---|---|---|---|
-| **GitLab** (`provider = "gitlab"`) | [`glab`](https://gitlab.com/gitlab-org/cli) (clones each MR) + a **GitLab MCP server** on `PATH` as `mcp-gitlab` / `gitlab-mcp` (posts inline threads). | `brew install glab` + `npm install -g @zereight/mcp-gitlab` | `sudo apt install glab` (or [other distros](https://gitlab.com/gitlab-org/cli#installation)) + `npm install -g @zereight/mcp-gitlab` |
-| **GitHub** (`provider = "github"`) | [`gh`](https://cli.github.com/) (clones each PR) + a **GitHub MCP server** on `PATH` as `github-mcp-server` / `mcp-github` / `gh-mcp-server` (posts inline review comments; falls back to REST if the MCP tool name differs). | `brew install gh` + install [github-mcp-server](https://github.com/github/github-mcp-server) (release binary or `go install`) | [`gh` apt setup](https://github.com/cli/cli/blob/trunk/docs/install_linux.md) + install [github-mcp-server](https://github.com/github/github-mcp-server) (release binary or `go install`) |
-
-**Authenticate each CLI once** so the `glab repo clone` / `gh repo clone`
-paths can reach private repositories:
-
-```sh
-# GitLab
-glab auth login              # paste a PAT or use the web flow
-# GitHub
-gh auth login                # web flow (recommended) or paste a PAT
-```
-
-These logins are separate from the bot token in `config/env.toml`: the CLI
-tokens authorize cloning on the review machine; the bot token authorizes the
-REST/MCP calls that read MRs/PRs and post comments.
+There are **no extra CLIs to install** for either provider. Checkout uses plain
+`git` over HTTPS, and listing changes, reading diffs, posting comments, and
+outcome sync all go through the provider's REST API. The only requirement is
+`git` on `PATH` (already in the common prerequisites) and a bot token (below) —
+the same token is used for the REST calls and as the `git clone` credential
+(sent per-call as an auth header, never written to the checkout's `.git/config`).
 
 ## Credentials — required for any review
 
 | Credential | What it does | Notes |
 |---|---|---|
 | **Bot user + token** | The bot account whose name shows on review threads/comments. | **GitLab:** token with `api` scope. **GitHub:** token with pull-request read+write. Use a dedicated bot account and add it to every reviewed project. |
-| **LLM API key** | OpenAI, Anthropic, Gemini, or whatever model your review CLI runs. | Exported as `LLM_API_KEY` plus the operator-named variable in `[agents].llm_api_key_env` (e.g. `OPENAI_API_KEY`). |
+| **LLM API key** | OpenAI, Anthropic, Gemini, or whatever model your review CLI runs. | One secret, `[agents].llm_api_key` (exported as `LLM_API_KEY`). The agent authenticates with its own login (e.g. `codex login --with-api-key`); see [LLM auth](configuration.md#llm-auth). |
 
 ## Optional
 
@@ -92,7 +80,7 @@ but does NOT check that the external CLIs the worker shells out to are on
 cycle — the most common cause of a first-cycle worker failure:
 
 ```sh
-for bin in uv python3 git glab gh codex claude github-mcp-server mcp-gitlab; do
+for bin in uv python3 git codex claude; do
   printf '%-20s %s\n' "$bin" "$(command -v "$bin" 2>/dev/null || echo MISSING)"
 done
 ```

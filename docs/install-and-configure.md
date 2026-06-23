@@ -81,19 +81,21 @@ Open it and fill in the minimum for a first review:
 token = "glpat-..."          # api scope
 
 [agents]
-llm_model = "gpt-5.5"            # match what your CLI is configured for
-llm_api_key = "..."             # your LLM key
-llm_api_key_env = "OPENAI_API_KEY"  # the env var your LLM CLI reads it from
-                                    # (ANTHROPIC_API_KEY, GEMINI_API_KEY, …)
+llm_model        = "gpt-5.5"        # bubo init templates this into the agent profile
+llm_model_effort = "medium"         # low / medium / high
+llm_api_key      = "..."            # your LLM key (authenticates the agent CLI)
 
 [[projects]]
 path = "your-group/your-repo"
 enabled = true
 ```
 
-Bubo is model-agnostic: `llm_api_key_env` names the variable your LLM CLI/SDK
-reads the key from, so you're never locked to one provider. The
-[recipes](recipes.md) have end-to-end setups.
+You set one secret, `llm_api_key`. By default the review agent authenticates with
+its own login (e.g. `codex login --with-api-key`) so the key never lands in the
+agent's environment; for a custom OpenAI-compatible endpoint, set `llm_base_url`
+and bubo passes the key through. See the
+[Configuration reference](configuration.md#llm-auth) and the
+[recipes](recipes.md) for end-to-end setups.
 
 Leave `[review].dry_run = true` (the default) until your first review output
 looks right — the poller plans findings without posting comments. Every knob

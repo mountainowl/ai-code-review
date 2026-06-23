@@ -20,10 +20,9 @@ The fastest path to a first review on a GitLab merge request.
 Install these once and put them on `PATH` (see
 [prerequisites](prerequisites.md) for platform-specific commands):
 
-- **uv**, **Python 3.14+**, **Git**
+- **uv**, **Python 3.14+**, **Git** (Git clones each MR over HTTPS — no `glab` needed)
 - **Codex CLI**, authenticated to OpenAI
 - **Superpowers + the `code-reviewer` skill** in your Codex config
-- **glab** (GitLab CLI) — for cloning/fetching MRs
 
 ### 2. Install Bubo
 
@@ -49,14 +48,19 @@ provider = "gitlab"
 token = "<glpat-your-token>"        # GitLab token with `api` scope
 
 [agents]
-llm_model = "gpt-5.5"               # any model your Codex profile drives
-llm_api_key = "<sk-your-openai-key>"
-llm_api_key_env = "OPENAI_API_KEY"  # the env var the OpenAI/Codex CLI reads
+llm_model        = "gpt-5.5"            # bubo init templates this into the Codex profile
+llm_model_effort = "medium"
+llm_api_key      = "<sk-your-openai-key>"
 
 [[projects]]
 path = "<your-group>/<your-repo>"   # repos Bubo should watch
 enabled = true
 ```
+
+Authenticate Codex once with that key: `codex login --with-api-key` (reads the
+key on stdin). bubo runs the reviewer under a strict env allowlist, so the key
+is taken from Codex's own login rather than injected into the agent's
+environment.
 
 ### 4. Verify and run
 
@@ -80,9 +84,8 @@ the install steps.
 
 ## Codex (OpenAI) — GitHub
 
-Same as the GitLab recipe, with three changes:
+Same as the GitLab recipe, with two changes (still just `git` — no `gh` CLI):
 
-- Install the **`gh` CLI** instead of `glab`, authenticated to GitHub.
 - Use a **GitHub token** with pull-request read+write.
 - Set the provider to GitHub:
 
@@ -94,9 +97,9 @@ provider = "github"
 token = "<ghp-your-token>"
 
 [agents]
-llm_model = "gpt-5.5"
-llm_api_key = "<sk-your-openai-key>"
-llm_api_key_env = "OPENAI_API_KEY"
+llm_model        = "gpt-5.5"
+llm_model_effort = "medium"
+llm_api_key      = "<sk-your-openai-key>"
 
 [[projects]]
 path = "<owner>/<repo>"
@@ -115,58 +118,42 @@ OpenAI-compatible gateway — Azure OpenAI, vLLM/TGI, LiteLLM, or an internal
 proxy — code, diffs, review state, **and the model call** all stay on your
 infrastructure. Nothing leaves.
 
-**The one thing to know:** Bubo never calls the model directly. It shells out to
-an agent CLI (Codex by default), so the in-house endpoint is configured in the
-**agent's profile**, not Bubo's `env.toml`. A bare `bubo init` ships a
-stock-OpenAI profile (`model = "gpt-5.5"`, no provider block), so pointing at an
-internal endpoint is one explicit edit — `uv tool install bubo && bubo init`
-alone will *not* redirect it.
+**The one thing to know:** Bubo never calls the model directly — it shells out to
+an agent CLI (Codex by default). Set `[agents].llm_base_url` to your endpoint and
+`bubo init` wires the Codex profile to it for you (writes a `[model_providers]`
+block and points `[profiles.bubo]` at it); the key is read from the environment
+at request time.
 
-### 1. Install Bubo (unchanged)
+### 1. Install + configure
 
 ```sh
 uv tool install bubo
-bubo init      # writes ~/.codex/config.toml [profiles.bubo], the env.toml seed, the DB
-bubo doctor
+bubo init      # seeds env.toml, writes the agent profile + DB
 ```
 
-### 2. Point the Codex profile at your gateway (the load-bearing step)
-
-Edit `~/.codex/config.toml`. Add a model-provider block and reference it from the
-`[profiles.bubo]` profile `bubo init` created:
-
-```toml
-[profiles.bubo]
-model          = "<internal-model-name>"
-model_provider = "inhouse"          # references the block below
-sandbox_mode   = "read-only"
-
-[model_providers.inhouse]
-name     = "In-house gateway"
-base_url = "https://llm.corp.internal/v1"   # your OpenAI-compatible endpoint
-env_key  = "OPENAI_API_KEY"                 # env var Codex reads the key from
-wire_api = "chat"                           # "chat" or "responses" — match your gateway
-```
-
-These are **Codex's** config keys, not Bubo's — confirm the exact field names
-against your Codex version.
-
-### 3. Tell Bubo the label + key plumbing
-
-In `$BUBO_ROOT/config/env.toml`:
+Then set the endpoint in `$BUBO_ROOT/config/env.toml` and re-run `bubo init` so
+it re-templates the profile:
 
 ```toml
 [agents]
-llm_model       = "<internal-model-name>"   # must match the profile; used for the cost label only
-llm_api_key     = "${LLM_API_KEY}"          # Bubo exports this under llm_api_key_env
-llm_api_key_env = "OPENAI_API_KEY"          # the env var your gateway/CLI reads
-codex_profile   = "bubo"
+llm_model    = "<internal-model-name>"      # also used for the cost label
+llm_api_key  = "${LLM_API_KEY}"             # read from the env at request time
+llm_base_url = "https://llm.corp.internal/v1"   # your OpenAI-compatible endpoint
 ```
+
+```sh
+bubo init      # re-templates ~/.codex/config.toml with the model-provider block
+bubo doctor
+```
+
+**Security note:** a custom `llm_base_url` is the one mode where the key reaches
+the agent's environment (an OpenAI-compatible endpoint reads it there). That's
+inherent to this setup; everything still stays on your infrastructure.
 
 If you track cost, set the `[telemetry]` `*_per_1m` rows to your gateway's rates
 (see the [configuration reference](configuration.md#telemetry)).
 
-### 4. Pre-flight the sandbox (the enterprise Linux gotcha)
+### 2. Pre-flight the sandbox (the enterprise Linux gotcha)
 
 On hardened Linux hosts — Ubuntu with the AppArmor unprivileged-user-namespace
 restriction — Codex's default `read-only` sandbox uses bubblewrap and can fail to
@@ -174,7 +161,7 @@ initialize, and a failed sandbox can surface as a misleading clean "no findings"
 review. Enterprise hosts are exactly where this bites. Fix it once during
 bring-up: see [Troubleshooting](troubleshooting.md).
 
-### 5. Verify before going live
+### 3. Verify before going live
 
 Keep `[review].dry_run = true`, run `bubo-poller` once, and read a transcript
 under `var/reports/` to confirm findings come through your in-house model. Then
@@ -189,19 +176,20 @@ flip `dry_run = false`.
 
 ## Claude
 
-Bubo runs the review through a wrapper around your agent CLI, so Claude works
-like Codex — only the CLI it calls and the key it uses change.
-Install the Claude CLI, then set Claude as your agent in `[agents]`:
+Bubo runs the review through your agent CLI, so Claude works like Codex — only
+the CLI it calls changes. Install the Claude CLI, point `[agents].reviewer_command`
+at it, and set the model:
 
 ```toml
 [agents]
-llm_model = "<your-claude-model>"
-llm_api_key = "<your-anthropic-key>"
-llm_api_key_env = "ANTHROPIC_API_KEY"   # the env var the Claude CLI reads
+reviewer_command = ["claude", "-p"]
+llm_model        = "<your-claude-model>"
+llm_model_effort = "medium"
+llm_api_key      = "<your-anthropic-key>"
 ```
 
-Codex ships pre-wired, so reviewing with Claude takes one extra step: point
-the wrapper at the Claude CLI for the review. Verify it like Codex — keep
-`[review].dry_run = true`, run `bubo-poller` once, and read the transcript
-under `var/reports/` to confirm findings come through before you flip
-`dry_run` to `false`.
+Authenticate the Claude CLI with that key the way its docs describe (e.g.
+`ANTHROPIC_API_KEY` in your shell, or `claude` login) — as with Codex, bubo runs
+the reviewer under a strict env allowlist rather than injecting the key. Verify it
+like Codex: keep `[review].dry_run = true`, run `bubo-poller` once, and read the
+transcript under `var/reports/` before you flip `dry_run` to `false`.
