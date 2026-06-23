@@ -94,7 +94,6 @@ def test_runtime_env_exports_from_env_toml() -> None:
         "gitlab": {
             "api_url": "https://gitlab.example/api/v4",
             "bot_username": "review-bot",
-            "denied_tools_regex": "^(delete_.*)$",
             "token": "gitlab-secret",
         },
         "poller": {
@@ -127,7 +126,6 @@ def test_runtime_env_exports_from_env_toml() -> None:
     assert env["CODEX_REVIEW_PROFILE"] == "reviewer"
     assert env["CODEX_SANDBOX"] == "read-only"
     assert env["GITLAB_API_URL"] == "https://gitlab.example/api/v4"
-    assert env["GITLAB_DENIED_TOOLS_REGEX"] == "^(delete_.*)$"
     assert env["BUBO_GITLAB_USERNAME"] == "review-bot"
     assert env["GITLAB_TOKEN"] == "gitlab-secret"
     assert env["GITLAB_PERSONAL_ACCESS_TOKEN"] == "gitlab-secret"

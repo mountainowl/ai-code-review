@@ -6,8 +6,8 @@ Two concerns live here:
    dict via :mod:`tomllib`. The only file format supported is TOML; there
    is no migration path from ``.env`` or YAML.
 2. **Exporting** values from the loaded config into the process environment
-   so child processes (the agent CLI, the GitLab MCP server, the `glab`
-   tool, etc.) can pick them up without re-parsing the TOML themselves.
+   so the poller (and the credential redactor) can pick them up without
+   re-parsing the TOML themselves.
 
 The shell wrapper :file:`bin/bubo` invokes this module's ``main`` to print
 ``export`` lines a POSIX shell can `eval`. The Python runtime calls
@@ -36,14 +36,14 @@ _ENV_PLACEHOLDER = re.compile(r"\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\
 
 ENV_CONFIG_NAME = "env.toml"
 
-# GitLab credential fanout: one TOML key, multiple env-var names because
-# downstream tools (`glab`, GitLab MCP server, our own poller) each read a
-# different variable. Listed once here so `redact_secrets` and exporters
-# stay in sync.
+# GitLab credential fanout: one TOML key, multiple env-var names. The provider
+# reads the first that is set; the extra aliases keep `redact_secrets` and any
+# operator-set environment in sync. Listed once here so exporters and the
+# redactor cannot drift.
 GITLAB_TOKEN_ENV_NAMES = ("GITLAB_TOKEN", "GITLAB_PERSONAL_ACCESS_TOKEN", "GLAB_TOKEN")
 
-# GitHub credential fanout: `gh` reads GH_TOKEN; the GitHub MCP server and
-# most tooling read GITHUB_TOKEN / GITHUB_PERSONAL_ACCESS_TOKEN.
+# GitHub credential fanout: the provider reads the first that is set; the
+# aliases keep the redactor and any operator-set environment in sync.
 GITHUB_TOKEN_ENV_NAMES = (
     "GITHUB_TOKEN",
     "GITHUB_PERSONAL_ACCESS_TOKEN",
@@ -192,9 +192,6 @@ def runtime_env(root: Path, cfg: dict[str, Any]) -> dict[str, str]:
         "CODEX_REVIEW_PROFILE": str(agent.get("codex_profile", "bubo")),
         "CODEX_SANDBOX": str(agent.get("codex_sandbox", "read-only")),
         "GITLAB_API_URL": str(gitlab.get("api_url", f"{gitlab_url}/api/v4")),
-        "GITLAB_DENIED_TOOLS_REGEX": str(
-            gitlab.get("denied_tools_regex", "^(delete_.*|merge_merge_request|push_files)$")
-        ),
         "GITHUB_API_URL": str(github.get("api_url", "https://api.github.com")),
     }
     if gitlab.get("bot_username"):

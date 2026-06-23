@@ -4,7 +4,6 @@ This file is the orchestrator. It sequences the review pipeline; the
 heavy lifting lives in dedicated sibling modules:
 
 * :mod:`bubo.db` — SQLite schema and all writers.
-* :mod:`bubo.mcp` — JSON-RPC client for the GitLab MCP server.
 * :mod:`bubo.gitlab` — REST client.
 * :mod:`bubo.findings` — finding extraction, policy filter,
   diff-position mapping.
@@ -91,7 +90,6 @@ from bubo.governance_policy import (
     is_escalated,
 )
 from bubo.hash_utils import stable_hash
-from bubo.mcp import call_tool as mcp_call_tool
 from bubo.outcome_classifier import classify_developer_reply
 from bubo.paths import CONFIG, ROOT
 from bubo.prompt import render_meta_prompt as _render_meta_prompt
@@ -1814,7 +1812,6 @@ __all__ = [
     "latest_reviewed_row",
     "log",
     "main",
-    "mcp_call_tool",
     "normalize_config",
     "now",
     "poll",
