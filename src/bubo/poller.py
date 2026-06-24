@@ -56,10 +56,7 @@ from bubo.db import (
     disputed_finding_classes,
     finding_seen,
     init_db,
-    latency_summary,
     latest_reviewed_row,
-    metrics_summary,
-    outcomes_summary,
     posted_findings_for_outcome_sync,
     prompt_version,
     record_finding_outcome,
@@ -534,7 +531,6 @@ def poll() -> int:
                 return queued
     if queued == 0:
         log("no_pending_reviews", poll_run_id=poll_run_id)
-    emit_usage_snapshot(cfg)
     analytics.flush()
     log("poll_done", poll_run_id=poll_run_id, queued=queued)
     return queued
@@ -604,28 +600,6 @@ def changed_loc(
     files = len(changed)
     lines = sum(len(entry.get("new_lines") or ()) for entry in changed.values())
     return files, lines
-
-
-def emit_usage_snapshot(cfg: ReviewConfig) -> None:
-    """Emit one anonymized rolled-up snapshot from the SQLite aggregate readers.
-
-    Numbers only, across all projects (``project=None``); see
-    :func:`bubo.analytics.record_usage_snapshot`. Best-effort — a reader error
-    (e.g. a fresh DB) is swallowed so a poll cycle never fails on analytics.
-    """
-    try:
-        summary = metrics_summary(readonly=True)
-        outcomes = outcomes_summary()
-        latency = latency_summary()
-    except Exception:
-        return
-    analytics.record_usage_snapshot(
-        cfg.analytics_config,
-        scm_provider=cfg.provider,
-        summary=summary,
-        outcomes=outcomes,
-        latency=latency,
-    )
 
 
 def _position_file(position: JsonObject) -> Any:
@@ -1557,6 +1531,8 @@ def sync_outcomes(limit: int = 200) -> int:
                 discussion_id=finding["discussion_id"],
                 outcome=outcome,
             )
+            prior_outcome = finding.get("prior_outcome") or {}
+            analytics_on = analytics.analytics_enabled(cfg.analytics_config)
             for name in (
                 "resolved",
                 "deleted",
@@ -1565,12 +1541,23 @@ def sync_outcomes(limit: int = 200) -> int:
                 "false_positive",
                 "duplicate",
             ):
-                if outcome[name] and telemetry.config.emit_outcome_sync:
+                if not outcome[name]:
+                    continue
+                if telemetry.config.emit_outcome_sync:
                     telemetry.record_finding(
                         repo=project,
                         status=name,
                         finding={"type": "unknown", "severity": "unknown", "category": "unknown"},
                         dry_run=False,
+                    )
+                # Anonymous analytics fan-out, beside the DB upsert above. Emit
+                # only on the false->true transition: the same posted finding is
+                # re-checked every cycle and PostHog has no per-finding key to
+                # dedupe on (the fingerprint is never sent), so an every-sync
+                # emit would multiply the count.
+                if analytics_on and not prior_outcome.get(name):
+                    analytics.record_finding_outcome(
+                        cfg.analytics_config, scm_provider=cfg.provider, outcome=name
                     )
             synced += 1
         except Exception as exc:
@@ -1590,12 +1577,20 @@ def sync_outcomes(limit: int = 200) -> int:
                 iid=iid,
                 error=redact_secrets(str(exc)),
             )
+    analytics.flush()
     log("outcome_sync_done", synced=synced, classified=classifications)
     return synced
 
 
 def backfill_gitlab_bot_comments(updated_after: str, limit: int = 500) -> int:
-    """Import already-posted GitLab bot discussions into local metrics state."""
+    """Import already-posted GitLab bot discussions into local metrics state.
+
+    Analytics boundary: outcomes written here are DB-only. This imports
+    pre-existing history, so it deliberately does not emit anonymous
+    ``finding_outcome`` events (those would land in PostHog at backfill time,
+    corrupting the by-day breakdown). Only the live ``sync_outcomes`` path
+    emits — see :func:`bubo.analytics.record_finding_outcome`.
+    """
     init_db()
     cfg = read_config()
     provider = get_provider(cfg)
@@ -1725,6 +1720,10 @@ def backfill_github_bot_comments(updated_after: str, limit: int = 500) -> int:
     GraphQL (so resolution state is real), records the bot's root comment as
     a POSTED finding, and upserts its outcome. Correlates to any existing
     row by the stored comment id so a re-run is idempotent.
+
+    Analytics boundary: like its GitLab twin, outcomes written here are
+    DB-only — backfilled history is not emitted to anonymous analytics; only
+    the live ``sync_outcomes`` path emits ``finding_outcome`` events.
     """
     init_db()
     cfg = read_config()

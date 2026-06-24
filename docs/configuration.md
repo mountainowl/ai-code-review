@@ -242,10 +242,16 @@ much code gets reviewed — is anonymous usage signal. This is *separate* from
 OTLP collector; `[analytics]` sends a tiny, anonymized signal to the project's
 PostHog so the tool can be improved.
 
-**What is sent — numbers only:** counts of reviews and findings, durations,
-lines-of-code reviewed, token totals, your SCM type (`gitlab`/`github`), and
-the model name. Plus a random install id and basic environment (OS, Python /
-Bubo version).
+**What is sent — numbers only:** one small event per completed review (its
+status, duration, token totals, lines/files changed, findings posted/skipped)
+and one per developer-engagement outcome as it's observed (a finding was
+resolved, replied to, disputed, or marked a false positive) — each carrying
+your SCM type (`gitlab`/`github`) and the model name. Plus a random install id
+and basic environment (OS, Python / Bubo version). There is no separate "phone
+home" job: an event is emitted only when bubo already writes that fact to its
+local database, never by reading the database back. (Historical comments
+imported with `bubo --backfill-*` are written to the local database only and
+are *not* sent — analytics covers the live poller and `--sync-outcomes`.)
 
 **What is never sent:** your code, file paths, repository or project names,
 review comments, commit SHAs, tokens/credentials, error text, or anything that

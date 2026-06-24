@@ -77,30 +77,9 @@ _ALLOWED_ATTRS = frozenset(
         "findings_skipped",
         "files_changed",
         "lines_changed",
-        # per-cycle aggregate snapshot (derived from SQLite aggregate readers)
-        "window_hours",
-        "reviews_total",
-        "reviews_success",
-        "reviews_failed",
-        "reviews_no_findings",
-        "reviews_running",
-        "reviews_queued",
-        "findings_total",
-        "tokens_total_sum",
-        "cost_usd_sum",
-        "outcomes_total",
-        "outcomes_resolved",
-        "outcomes_disputed",
-        "outcomes_false_positive",
-        "outcomes_duplicate",
-        "outcomes_developer_replied",
-        "outcomes_merged_unresolved",
-        "outcomes_deleted",
-        "latency_count",
-        "latency_p50_seconds",
-        "latency_p95_seconds",
-        "latency_max_seconds",
-        "latency_avg_seconds",
+        # per-outcome engagement event — one per finding-outcome transition
+        # (see `record_finding_outcome`). The value is the outcome name only.
+        "outcome",
     }
 )
 
@@ -108,6 +87,12 @@ _ALLOWED_ATTRS = frozenset(
 # "other" so a custom command can never leak a path or arbitrary string.
 _KNOWN_PROVIDERS = frozenset({"gitlab", "github"})
 _KNOWN_AGENTS = frozenset({"codex", "claude"})
+# Developer-engagement outcome dimensions. Mirrors the per-finding flags the
+# poller's outcome sync writes to SQLite; a value outside the set normalizes to
+# "other" so a future column can never leak as an arbitrary string.
+_KNOWN_OUTCOMES = frozenset(
+    {"resolved", "deleted", "developer_replied", "disputed", "false_positive", "duplicate"}
+)
 
 # Cap any string attribute (only model survives as a free-ish value) and reject
 # anything with whitespace/control chars so a misconfigured model id cannot
@@ -369,57 +354,33 @@ def record_review_completed(
     )
 
 
-def record_usage_snapshot(
-    cfg: AnalyticsConfig,
-    *,
-    scm_provider: str,
-    summary: dict[str, Any],
-    outcomes: dict[str, Any],
-    latency: dict[str, Any],
-) -> None:
-    """A rolled-up snapshot derived from the SQLite aggregate readers.
+def record_finding_outcome(cfg: AnalyticsConfig, *, scm_provider: str, outcome: str) -> None:
+    """One event per developer-engagement outcome — emitted at sync time.
 
-    ``summary``/``outcomes``/``latency`` are the dicts returned by
-    :func:`bubo.db.metrics_summary` / :func:`~bubo.db.outcomes_summary` /
-    :func:`~bubo.db.latency_summary` (already pure numbers, no identifiers).
-    Only the flattened, allowlisted numeric fields survive ``_clean``.
+    The caller (``bubo.poller.sync_outcomes``) emits this only on the
+    ``false -> true`` transition of a single outcome dimension, beside the
+    SQLite ``finding_outcomes`` upsert. Transition-gating is load-bearing for
+    correctness: a posted finding is re-checked every sync cycle, and PostHog
+    has no per-finding key to dedupe on (the fingerprint is never sent), so an
+    every-sync emit would multiply each outcome's count. Emitting once per
+    transition makes a PostHog ``count`` of ``outcome=resolved`` match the
+    distinct count of resolved findings in SQLite.
     """
-    by_status = summary.get("by_status") or {}
     _emit(
         cfg,
-        "usage_snapshot",
-        {
-            "scm_provider": _provider(scm_provider),
-            "window_hours": summary.get("window_hours"),
-            "reviews_total": summary.get("reviews_total"),
-            "reviews_success": by_status.get("success"),
-            "reviews_failed": by_status.get("failed"),
-            "reviews_no_findings": by_status.get("no_findings"),
-            "reviews_running": by_status.get("running"),
-            "reviews_queued": by_status.get("queued"),
-            "findings_total": summary.get("findings_total"),
-            "tokens_total_sum": summary.get("tokens_total_sum"),
-            "cost_usd_sum": summary.get("cost_usd_sum"),
-            "outcomes_total": outcomes.get("total"),
-            "outcomes_resolved": outcomes.get("resolved"),
-            "outcomes_disputed": outcomes.get("disputed"),
-            "outcomes_false_positive": outcomes.get("false_positive"),
-            "outcomes_duplicate": outcomes.get("duplicate"),
-            "outcomes_developer_replied": outcomes.get("developer_replied"),
-            "outcomes_merged_unresolved": outcomes.get("merged_unresolved"),
-            "outcomes_deleted": outcomes.get("deleted"),
-            "latency_count": latency.get("count"),
-            "latency_p50_seconds": latency.get("p50_seconds"),
-            "latency_p95_seconds": latency.get("p95_seconds"),
-            "latency_max_seconds": latency.get("max_seconds"),
-            "latency_avg_seconds": latency.get("avg_seconds"),
-        },
+        "finding_outcome",
+        {"scm_provider": _provider(scm_provider), "outcome": _outcome(outcome)},
     )
 
 
 def _provider(value: str) -> str:
     name = (value or "").strip().lower()
     return name if name in _KNOWN_PROVIDERS else "other"
+
+
+def _outcome(value: str) -> str:
+    name = (value or "").strip().lower()
+    return name if name in _KNOWN_OUTCOMES else "other"
 
 
 def flush() -> None:
@@ -444,7 +405,7 @@ __all__ = [
     "analytics_enabled",
     "flush",
     "install_id",
+    "record_finding_outcome",
     "record_review_completed",
     "record_session_start",
-    "record_usage_snapshot",
 ]

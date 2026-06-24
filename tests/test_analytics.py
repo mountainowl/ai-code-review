@@ -5,9 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from bubo import analytics, db, paths, poller
+from bubo import analytics
 from bubo.analytics_config import AnalyticsConfig
-from bubo.review_config import review_config_from_dict
 
 
 @pytest.fixture(autouse=True)
@@ -239,65 +238,36 @@ def test_record_review_completed_emits_only_allowlisted(
     assert "os" in attrs
 
 
-def test_record_usage_snapshot_flattens_aggregates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_record_finding_outcome_emits_allowlisted_event(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(analytics.paths, "DB", tmp_path / "state" / "reviewer.sqlite")
     fake = _FakeLogger()
     monkeypatch.setattr(analytics, "_get_logger", lambda cfg: fake)
 
-    analytics.record_usage_snapshot(
-        AnalyticsConfig(),
-        scm_provider="github",
-        summary={
-            "window_hours": 24,
-            "reviews_total": 7,
-            "by_status": {"success": 5, "failed": 2},
-            "findings_total": 9,
-            "tokens_total_sum": 1000,
-            "cost_usd_sum": 1.5,
-            "project": "should-not-appear",  # not allowlisted
-        },
-        outcomes={"total": 3, "resolved": 2, "disputed": 1},
-        latency={"count": 7, "p50_seconds": 1.2, "p95_seconds": 3.4},
-    )
+    analytics.record_finding_outcome(AnalyticsConfig(), scm_provider="gitlab", outcome="resolved")
 
     event, attrs = fake.calls[0]
-    assert event == "usage_snapshot"
+    assert event == "finding_outcome"
+    assert attrs["outcome"] == "resolved"
+    assert attrs["scm_provider"] == "gitlab"
     assert set(attrs).issubset(analytics._ALLOWED_ATTRS)
-    assert attrs["reviews_success"] == 5
-    assert attrs["reviews_failed"] == 2
-    assert attrs["outcomes_resolved"] == 2
-    assert attrs["latency_p95_seconds"] == 3.4
-    assert "project" not in attrs
 
 
-def test_poller_emit_usage_snapshot_reads_db(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_record_finding_outcome_normalizes_unknown_values(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """poller.emit_usage_snapshot wires the SQLite aggregate readers into the
-    analytics snapshot — exercised against a real (empty) DB."""
-    monkeypatch.setattr(paths, "DB", tmp_path / "state" / "reviewer.sqlite")
-    monkeypatch.setattr(paths, "WORK", tmp_path / "work")
-    monkeypatch.setattr(paths, "REPORTS", tmp_path / "reports")
-    monkeypatch.setattr(paths, "JOBS", tmp_path / "jobs")
-    monkeypatch.setattr(paths, "LOGS", tmp_path / "log")
-    monkeypatch.setattr(paths, "RENDERED_PROMPTS", tmp_path / "rp")
-    db.init_db()
+    # Defense in depth: an outcome name outside the known set (and a junk
+    # provider) collapse to "other" rather than leaking an arbitrary string.
+    fake = _FakeLogger()
+    monkeypatch.setattr(analytics, "_get_logger", lambda cfg: fake)
 
-    captured: dict[str, object] = {}
+    analytics.record_finding_outcome(
+        AnalyticsConfig(), scm_provider="weird-scm", outcome="merged_unresolved"
+    )
 
-    def _capture(cfg: AnalyticsConfig, **kw: object) -> None:
-        captured.update(kw)
-
-    monkeypatch.setattr(poller.analytics, "record_usage_snapshot", _capture)
-    cfg = review_config_from_dict({"scm": {"provider": "github"}})
-    poller.emit_usage_snapshot(cfg)
-
-    assert captured["scm_provider"] == "github"
-    assert "reviews_total" in captured["summary"]  # type: ignore[operator]
-    assert "total" in captured["outcomes"]  # type: ignore[operator]
-    assert "count" in captured["latency"]  # type: ignore[operator]
+    _, attrs = fake.calls[0]
+    assert attrs["outcome"] == "other"
+    assert attrs["scm_provider"] == "other"
 
 
 def test_emit_is_noop_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
