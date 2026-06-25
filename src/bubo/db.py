@@ -183,6 +183,12 @@ def init_db() -> None:
             # per-lens tally. Additive so existing DBs migrate on next run.
             "verified": "integer",
             "verify_votes": "text",
+            # Cross-SHA dedup identity (SHA- and wording-independent — see
+            # `bubo.findings.finding_dedup_key`). Lets the poller recognize a
+            # finding already posted on the MR at an earlier commit and skip
+            # re-posting it as a new thread. Additive; existing DBs migrate on
+            # next run (old rows stay NULL and simply never match).
+            "dedup_key": "text",
         }.items():
             ensure_column(db, "review_findings", name, definition)
         db.execute(
@@ -661,6 +667,39 @@ def finding_seen(project: str, iid: int, sha: str, fingerprint: str) -> bool:
     return row is not None
 
 
+def finding_posted_on_mr(project: str, iid: int, dedup_key: str) -> bool:
+    """Return ``True`` if an equivalent finding is already live on this MR.
+
+    Cross-SHA counterpart to :func:`finding_seen` (which is same-SHA only, for
+    retried worker runs). Matches on the SHA- and wording-independent
+    ``dedup_key`` (see :func:`bubo.findings.finding_dedup_key`) across *every*
+    SHA of the MR, so a re-review at a new commit does not re-post a finding
+    that is already on the thread. Matches both ``POSTED`` and
+    ``PENDING_EXTERNAL_ID`` — the latter means the comment was created but the
+    provider returned no id, so it is on the thread too and must not be
+    duplicated. A blank key (e.g. a pre-migration row) never matches.
+    """
+    if not dedup_key:
+        return False
+    with connect_db() as db:
+        row = db.execute(
+            """
+            select 1 from review_findings
+            where project=? and iid=? and dedup_key=?
+              and status in (?, ?)
+            limit 1
+            """,
+            (
+                project,
+                iid,
+                dedup_key,
+                FindingStatus.POSTED,
+                FindingStatus.PENDING_EXTERNAL_ID,
+            ),
+        ).fetchone()
+    return row is not None
+
+
 def record_finding(
     *,
     project: str,
@@ -675,6 +714,7 @@ def record_finding(
     note_id: str | None = None,
     verified: bool | None = None,
     verify_votes: str | None = None,
+    dedup_key: str | None = None,
 ) -> None:
     """Upsert one ``review_findings`` row.
 
@@ -703,9 +743,9 @@ def record_finding(
             """
             insert into review_findings(
               project,iid,sha,fingerprint,file,line,status,discussion_id,body,updated_at,
-              run_id,type,severity,category,confidence,note_id,verified,verify_votes
+              run_id,type,severity,category,confidence,note_id,verified,verify_votes,dedup_key
             )
-            values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             on conflict(project,iid,sha,fingerprint) do update set
               status=excluded.status,
               discussion_id=excluded.discussion_id,
@@ -718,6 +758,7 @@ def record_finding(
               note_id=excluded.note_id,
               verified=coalesce(excluded.verified, review_findings.verified),
               verify_votes=coalesce(excluded.verify_votes, review_findings.verify_votes),
+              dedup_key=coalesce(excluded.dedup_key, review_findings.dedup_key),
               updated_at=excluded.updated_at
             """,
             (
@@ -739,6 +780,7 @@ def record_finding(
                 note_id,
                 verified_int,
                 verify_votes,
+                dedup_key,
             ),
         )
 
@@ -1683,6 +1725,7 @@ __all__ = [
     "disputed_class_stats",
     "disputed_finding_classes",
     "ensure_column",
+    "finding_posted_on_mr",
     "finding_seen",
     "findings_for",
     "get_review_row",

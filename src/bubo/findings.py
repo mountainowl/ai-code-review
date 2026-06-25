@@ -879,3 +879,45 @@ def finding_fingerprint(project: str, iid: int, sha: str, finding: JsonObject) -
         "body": " ".join(finding_body(finding).split()),
     }
     return stable_hash(payload)
+
+
+def finding_dedup_key(project: str, iid: int, finding: JsonObject) -> str:
+    """Stable cross-SHA identity for a finding — independent of commit and wording.
+
+    Unlike :func:`finding_fingerprint` (which mixes in the commit ``sha`` *and*
+    the full rendered ``body``, so it changes on every re-review), this keys
+    only on a finding's structural locus and taxonomy — ``file``, ``line``,
+    ``category``, ``severity``, ``type`` — none of which the LLM re-words run to
+    run. It lets the poller skip re-posting a finding already on the MR thread
+    from an earlier commit (see :func:`bubo.db.finding_posted_on_mr`), which is
+    what stops a new push from stacking a duplicate comment.
+
+    The taxonomy fields are defaulted exactly as :func:`finding_body` defaults
+    them (``issue`` / ``blocking`` / ``correctness``) so a finding that omits
+    one keys consistently instead of silently degrading to file+line alone.
+
+    ``line`` is deliberately part of the key. Dropping it would collapse two
+    *distinct* findings in the same file into one and never post the second — a
+    silently-hidden real finding, the unsafe direction for a security reviewer.
+    The accepted cost is that a later commit which shifts the line yields one
+    residual duplicate (the safe direction); content-anchoring on the flagged
+    line's text is a future refinement.
+    """
+    # Coerce line to int exactly as `db.record_finding` stores it, so an LLM
+    # that emits ``"line": "12"`` one run and ``12`` the next keys identically.
+    # Defensive (never raises) — dedup must not be able to break a review.
+    raw_line = finding.get("line") or finding.get("new_line")
+    try:
+        line = int(raw_line) if raw_line is not None else None
+    except (TypeError, ValueError):
+        line = None
+    payload = {
+        "project": project,
+        "iid": iid,
+        "file": finding.get("file") or finding.get("path"),
+        "line": line,
+        "category": str(finding.get("category") or "correctness").strip().lower(),
+        "severity": str(finding.get("severity") or "blocking").strip().lower(),
+        "type": str(finding.get("type") or "issue").strip().lower(),
+    }
+    return stable_hash(payload)

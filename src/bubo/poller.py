@@ -55,6 +55,7 @@ from bubo.db import (
     count_inflight_workers,
     disputed_class_stats,
     disputed_finding_classes,
+    finding_posted_on_mr,
     finding_seen,
     init_db,
     latest_reviewed_row,
@@ -80,6 +81,7 @@ from bubo.findings import (
     filter_findings_by_policy,
     finding_body,
     finding_comment_body,
+    finding_dedup_key,
     finding_fingerprint,
     normalize_finding_categories,
     surface_predicate_for_mode,
@@ -270,6 +272,7 @@ def record_finding(
     note_id: str | None = None,
     verified: bool | None = None,
     verify_votes: str | None = None,
+    dedup_key: str | None = None,
 ) -> None:
     """Persist a finding with its rendered body.
 
@@ -300,6 +303,7 @@ def record_finding(
         note_id=note_id,
         verified=verified,
         verify_votes=verify_votes,
+        dedup_key=dedup_key,
     )
 
 
@@ -853,7 +857,22 @@ def post_or_plan_findings(
     verified_count = refuted_count = capped_count = verified_attempts = 0
     for finding in findings:
         fp = finding_fingerprint(project, number, sha, finding)
-        if finding_seen(project, number, sha, fp):
+        dedup_key = finding_dedup_key(project, number, finding)
+        # Skip if this exact finding was already recorded at THIS sha (a retried
+        # worker run — finding_seen) OR already posted on this MR at ANY earlier
+        # commit (finding_posted_on_mr). The cross-SHA guard is what stops a new
+        # push — which re-reviews at a fresh sha and re-words each finding — from
+        # stacking a duplicate thread for every still-present finding.
+        if finding_seen(project, number, sha, fp) or finding_posted_on_mr(
+            project, number, dedup_key
+        ):
+            log(
+                "finding_duplicate_skipped",
+                project=project,
+                iid=number,
+                file=finding.get("file") or finding.get("path"),
+                line=finding.get("line") or finding.get("new_line"),
+            )
             skipped += 1
             continue
         position = provider.build_position(change, changed, finding)
@@ -863,6 +882,7 @@ def post_or_plan_findings(
                 iid=number,
                 sha=sha,
                 fingerprint=fp,
+                dedup_key=dedup_key,
                 finding=finding,
                 status=FindingStatus.SKIPPED,
                 run_id=run_id,
@@ -942,6 +962,7 @@ def post_or_plan_findings(
                         iid=number,
                         sha=sha,
                         fingerprint=fp,
+                        dedup_key=dedup_key,
                         finding=finding,
                         status=FindingStatus.REFUTED,
                         run_id=run_id,
@@ -990,6 +1011,7 @@ def post_or_plan_findings(
                 iid=number,
                 sha=sha,
                 fingerprint=fp,
+                dedup_key=dedup_key,
                 finding=finding,
                 status=FindingStatus.PLANNED,
                 run_id=run_id,
@@ -1019,6 +1041,7 @@ def post_or_plan_findings(
                     iid=number,
                     sha=sha,
                     fingerprint=fp,
+                    dedup_key=dedup_key,
                     finding=finding,
                     status=FindingStatus.PENDING_EXTERNAL_ID,
                     run_id=run_id,
@@ -1046,6 +1069,7 @@ def post_or_plan_findings(
                 iid=number,
                 sha=sha,
                 fingerprint=fp,
+                dedup_key=dedup_key,
                 finding=finding,
                 status=FindingStatus.POSTED,
                 discussion_id=comment_id,
@@ -1805,6 +1829,7 @@ __all__ = [
     "connect_db",
     "count_inflight_workers",
     "emit_finding_metric",
+    "finding_posted_on_mr",
     "finding_seen",
     "fork_worker",
     # config glue
