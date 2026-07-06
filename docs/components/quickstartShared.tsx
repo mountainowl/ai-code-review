@@ -1,5 +1,6 @@
 import { useState, type Dispatch, type SetStateAction } from 'react'
 import styles from './quickstart.module.css'
+import { asset } from './asset'
 
 export type Agent = 'codex' | 'claude'
 export type OS = 'mac' | 'linux' | 'windows'
@@ -94,8 +95,8 @@ export function Tabs<T extends string>({
             <span
               className={styles.tabIcon}
               style={{
-                WebkitMaskImage: `url(/${o.icon}.svg)`,
-                maskImage: `url(/${o.icon}.svg)`,
+                WebkitMaskImage: `url(${asset(`/${o.icon}.svg`)})`,
+                maskImage: `url(${asset(`/${o.icon}.svg`)})`,
               }}
               aria-hidden="true"
             />

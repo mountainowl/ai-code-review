@@ -1,6 +1,7 @@
 import React from 'react'
 import { DocsThemeConfig } from 'nextra-theme-docs'
 import { SiteFooter } from './components/SiteFooter'
+import { asset } from './components/asset'
 
 const config: DocsThemeConfig = {
   logo: (
@@ -44,7 +45,7 @@ const config: DocsThemeConfig = {
           title="GitHub"
         >
           <img
-            src="/github.svg"
+            src={asset('/github.svg')}
             alt="GitHub"
             width={22}
             height={22}
@@ -59,7 +60,7 @@ const config: DocsThemeConfig = {
           title="PyPI"
         >
           <img
-            src="/pypi.svg"
+            src={asset('/pypi.svg')}
             alt="PyPI"
             width={22}
             height={22}
@@ -74,7 +75,7 @@ const config: DocsThemeConfig = {
           title="Docker (GHCR)"
         >
           <img
-            src="/docker.svg"
+            src={asset('/docker.svg')}
             alt="Docker"
             width={22}
             height={22}

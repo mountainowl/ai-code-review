@@ -1,4 +1,5 @@
 import React from 'react'
+import { asset } from './asset'
 
 export function SiteFooter() {
   return (
@@ -26,7 +27,7 @@ export function SiteFooter() {
       >
         {/* logomark — the actual mushroom photo, background removed */}
         <img
-          src="/mushroom-logo.png"
+          src={asset('/mushroom-logo.png')}
           alt="MountainOwl"
           width={45}
           height={34}

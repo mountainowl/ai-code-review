@@ -3,6 +3,7 @@ import { CodeBlock } from './quickstartShared'
 import { composeRecipe } from './recipes/compose'
 import type { AgentId, InstallId, OsId, ScmId } from './recipes/types'
 import styles from './recipePicker.module.css'
+import { asset } from './asset'
 
 const OSES: { id: OsId; label: string; icon: string }[] = [
   { id: 'mac', label: 'macOS', icon: '/apple.svg' },
@@ -52,7 +53,7 @@ function Group<T extends string>({
             className={`${styles.card} ${value === o.id ? styles.active : ''}`}
           >
             <span className={styles.tile}>
-              <img src={o.icon} alt="" />
+              <img src={asset(o.icon)} alt="" />
             </span>
             <span className={styles.cardLabel}>{o.label}</span>
           </button>
@@ -76,7 +77,7 @@ function Chips({
   const chip = (c: { label: string; icon: string }) => (
     <span className={styles.recipeChip}>
       <span className={styles.recipeIconTile}>
-        <img src={c.icon} alt="" />
+        <img src={asset(c.icon)} alt="" />
       </span>
       {c.label}
     </span>

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import styles from './overviewSections.module.css'
+import { asset } from './asset'
 
 const CAPABILITIES: ReactNode[] = [
   'Self-hosted automated review and inline posting',
@@ -149,7 +150,7 @@ export function GetStarted() {
             <>
               <span className={styles.ctaTop}>
                 <span className={styles.ctaIcon}>
-                  {s.brand ? <img src={s.brand} alt="" /> : s.icon}
+                  {s.brand ? <img src={asset(s.brand)} alt="" /> : s.icon}
                 </span>
                 <span className={styles.ctaTitle}>{s.title}</span>
                 <span className={styles.arrow} aria-hidden="true">→</span>
