@@ -29,9 +29,9 @@ export default {
   recipes: 'Recipes',
   mcp: 'MCP server',
   'github-action': 'GitHub Action (CI)',
-  configuration: 'Configuration reference',
   operate: 'Operate',
   telemetry: 'Metrics & telemetry',
   troubleshooting: 'Troubleshooting',
+  configuration: 'Configuration reference',
   references: 'References',
 }

@@ -238,13 +238,18 @@
   margin: 0;
   overflow-x: auto;
   padding: 1rem 1.1rem;
-  border-radius: 0.6rem;
-  background: #0d1117;
-  border: 1px solid #1f2630;
-  color: #e6edf3;
+  border-radius: 0.375rem;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  color: #24292e;
   font-size: 0.86rem;
   line-height: 1.6;
   font-family: var(--code-font);
+}
+:global(html.dark) .code pre {
+  background: #000000;
+  border-color: #404040;
+  color: #e6edf3;
 }
 .code code {
   font-family: var(--code-font);
@@ -267,10 +272,16 @@
   padding: 0;
   border: none;
   background: none;
-  color: #8b949e;
+  color: #57606a;
   transition: color 0.15s ease;
 }
 .iconBtn:hover {
+  color: #24292e;
+}
+:global(html.dark) .iconBtn {
+  color: #8b949e;
+}
+:global(html.dark) .iconBtn:hover {
   color: #fff;
 }
 

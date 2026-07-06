@@ -14,7 +14,8 @@ const TABS: { id: Mode; label: string; blurb: string }[] = [
 const CLIENT = '~/.codex/config.toml'
 
 type Block = { label: string; code: string }
-type Config = { steps: ReactNode[]; blocks: Block[]; note?: ReactNode }
+type Info = { label?: string; title: string; body: ReactNode; code?: string }
+type Config = { steps: ReactNode[]; blocks: Block[]; info?: Info[]; note?: ReactNode }
 
 const CONFIG: Record<Mode, Config> = {
   local: {
@@ -37,14 +38,49 @@ tool_timeout_sec    = 1800   # >= [review].timeout_seconds for review_change`,
   },
   ssh: {
     steps: [
-      'Use key-based SSH to the reviewer host — an interactive password breaks the stdio loop.',
       <>
-        Keep stdout clean: <code>PrintMotd no</code> server-side, or{' '}
-        <code>LogLevel QUIET</code> client-side.
+        Set up <strong>passwordless key-based SSH</strong> to the reviewer host (below) — a password
+        or passphrase prompt would corrupt the stdio stream.
       </>,
       <>
-        Point the client at <code>ssh</code> running the remote <code>bubo mcp</code>.
+        Point Codex at <code>ssh</code> running the remote <code>bubo mcp</code>.
       </>,
+    ],
+    info: [
+      {
+        label: 'Prerequisite',
+        title: 'Set up key-based SSH for stdio',
+        body: (
+          <>
+            The MCP client runs the SSH command and speaks JSON-RPC over its stdin/stdout, so auth
+            must be non-interactive — a password prompt, key passphrase, or login banner gets mixed
+            into that stream and hangs the agent. Pin the user and key in <code>~/.ssh/config</code>,
+            then test with <code>BatchMode=yes</code>: if it prompts, fix that before pointing the
+            agent at it.
+          </>
+        ),
+        code: `# 1) Create a dedicated client key (pick a passphrase, or -N "" for none).
+ssh-keygen -t ed25519 -f ~/.ssh/bubo-reviewer -C "bubo-mcp"
+#    Passphrase set? Load it once so connections never prompt:
+#    ssh-add ~/.ssh/bubo-reviewer
+
+# 2) Install the public key on the reviewer host.
+ssh-copy-id -i ~/.ssh/bubo-reviewer.pub bubo@bubo.example.com
+
+# 3) Pin user + key under a stable Host alias (used by ~/.codex/config.toml).
+cat >> ~/.ssh/config <<'EOF'
+Host bubo-reviewer
+  HostName bubo.example.com
+  User bubo
+  IdentityFile ~/.ssh/bubo-reviewer
+  IdentitiesOnly yes
+  BatchMode yes          # fail fast instead of prompting for a password
+  LogLevel QUIET         # no client-side banner noise on stdout
+EOF
+
+# 4) Verify it connects with no prompt.
+ssh -o BatchMode=yes bubo-reviewer '/opt/bubo/bin/bubo mcp --help >/dev/null'`,
+      },
     ],
     blocks: [
       {
@@ -54,7 +90,7 @@ command = "ssh"
 args = [
     "-T",                              # no pty; keeps stdout clean for MCP framing
     "-o", "ServerAliveInterval=30",    # keep long review_change calls alive across NAT
-    "bubo.example.com",                # ssh_config Host alias, or user@host
+    "bubo-reviewer",                   # ssh_config Host alias, or user@host
     "/opt/bubo/bin/bubo mcp",          # absolute path on the server
 ]
 startup_timeout_sec = 30
@@ -129,6 +165,15 @@ export function McpConfig() {
           <li key={i}>{s}</li>
         ))}
       </ol>
+
+      {cfg.info?.map((info) => (
+        <div key={info.title} className={styles.info}>
+          <span className={styles.infoLabel}>{info.label ?? 'Information'}</span>
+          <h4 className={styles.infoTitle}>{info.title}</h4>
+          <p className={styles.infoBody}>{info.body}</p>
+          {info.code && <CodeBlock code={info.code} />}
+        </div>
+      ))}
 
       {cfg.blocks.map((b) => (
         <div key={b.label} className={styles.block}>

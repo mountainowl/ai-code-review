@@ -9,29 +9,29 @@ only actionable comments. Every knob below lives in the
 - **Only what matters.** What's wrong, why it matters, and how to fix it — no chatter.
 - **Clean-review acknowledgement.** On clean changes, Bubo can post one short note so teams know the review ran. [config →](/configuration#agents)
 - **Dry run.** Run the full review path without posting comments. [dry_run →](/configuration#review)
-- **Pick the tone.** Terse, collaborative, socratic, formal, or casual. [Tones →](/configuration#review-comment-tone)
+- **Pick the tone.** Terse, collaborative, socratic, formal, or casual. [Tones →](/configuration#review)
 
 ## AI model flexibility
 
-- **Self-hosted.** Run it in your own infrastructure. [Install →](/recipes) · [System requirements →](/configuration#system-requirements)
+- **Self-hosted.** Run it in your own infrastructure. [Install →](/recipes) · [System requirements →](/configuration#runtime-requirements)
 - **Bring your own model.** Use Codex, Claude, or any reviewer agent exposed through a CLI. [Recipes →](/recipes)
 - **SCM.** Supports GitLab and GitHub. [config →](/configuration#scm)
 
 ## Decision gates
 
 - **Collaborate or gate.** Post questions and suggestions, or restrict output to merge-blocking defects.
-  [Surface mode →](/configuration#surface-mode-gate-vs-collaborate)
+  [Surface mode →](/configuration#review)
 - **Confidence calibration.** Tune thresholds from team dispute history, with manual overrides when needed.
-  [Calibrate →](/configuration#calibrated-per-class-confidence)
+  [Calibrate →](/configuration#review)
 - **Learns team preferences.** Categories repeatedly dismissed by a team can be suppressed.
-  [Suppression →](/configuration#dispute-driven-suppression)
+  [Suppression →](/configuration#review)
 - **Double-checks first.** Optional second pass for models whose findings don't hold up.
-  [Verify →](/configuration#verification-before-posting)
+  [Verify →](/configuration#review)
 
 ## Governance, compliance & ROI
 
 - **AI-code provenance.** Identifies AI-assisted and sensitive changes for closer
-  review; it does not block merges by itself. [Provenance →](/configuration#governance--provenance)
+  review; it does not block merges by itself. [Provenance →](/configuration#governance)
 - **Audit trail.** A chronological record you can inspect — metrics and decisions. [Governance report →](/operate#governance-report)
 - **ROI reporting.** `bubo report` exports accept/dispute rate, bugs caught, noise
   trend, cost, and lines of code reviewed.

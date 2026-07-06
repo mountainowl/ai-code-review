@@ -81,6 +81,40 @@
   color: #6b7280;
 }
 
+.info {
+  margin-top: 1rem;
+  border-left: 3px solid #1d4ed8;
+  background: #f8fafc;
+  padding: 0.85rem 1rem 1rem;
+}
+.infoLabel {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1d4ed8;
+}
+.infoTitle {
+  margin: 0 0 0.35rem;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: #111827;
+}
+.infoBody {
+  margin: 0 0 0.75rem;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: #374151;
+}
+.infoBody code {
+  font-size: 0.85em;
+  background: #eef0f3;
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
 :global(html.dark) .tabs {
   border-bottom-color: #2a2c31;
 }
@@ -107,5 +141,21 @@
 }
 :global(html.dark) .steps code,
 :global(html.dark) .note code {
+  background: #1f2024;
+}
+:global(html.dark) .info {
+  border-left-color: #60a5fa;
+  background: #15171b;
+}
+:global(html.dark) .infoLabel {
+  color: #60a5fa;
+}
+:global(html.dark) .infoTitle {
+  color: #f9fafb;
+}
+:global(html.dark) .infoBody {
+  color: #cbd2da;
+}
+:global(html.dark) .infoBody code {
   background: #1f2024;
 }
