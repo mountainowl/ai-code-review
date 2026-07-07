@@ -51,6 +51,7 @@ Every instrument carries `repo`. Run-scoped instruments also carry `model`, `pro
 | `llm_review.failures` | counter | one per failed stage | `error_type`, `operation` (`review`/`outcome_sync`) |
 | `llm_review.latency.review_seconds` | histogram | worker wall-clock per review | — |
 | `llm_review.latency.queue_seconds` | histogram | queue wait before a worker picks up a job — the saturation signal | `repo` only |
+| `llm_review.lines_reviewed` | histogram | added lines reviewed per run | — |
 
 Trim volume with two switches: `emit_finding_events = false` drops the per-finding counter;
 `emit_outcome_sync = false` keeps only the initial-post events on `llm_review.findings`.
