@@ -274,4 +274,11 @@ def classify_discussion_outcome(
         # by record_finding_outcome). Bot's finding + the developer replies.
         "_finding_text": str(bot_notes[0].get("body") or "") if bot_notes else "",
         "_reply_text": "\n\n".join(str(note.get("body") or "") for note in reply_notes),
+        "_reply_records": [
+            {
+                "author": str((note.get("author") or {}).get("username") or ""),
+                "body": str(note.get("body") or ""),
+            }
+            for note in reply_notes
+        ],
     }

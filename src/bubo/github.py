@@ -484,6 +484,10 @@ def classify_graphql_thread_outcome(
         # by record_finding_outcome). Bot's finding + the developer replies.
         "_finding_text": str((bot_comment or {}).get("body") or ""),
         "_reply_text": "\n\n".join(str(c.get("body") or "") for c in replies),
+        "_reply_records": [
+            {"author": str(c.get("login") or ""), "body": str(c.get("body") or "")}
+            for c in replies
+        ],
     }
 
 
@@ -562,4 +566,11 @@ def classify_review_thread_outcome(
         # by record_finding_outcome). Bot's finding + the developer replies.
         "_finding_text": str(comment.get("body") or ""),
         "_reply_text": "\n\n".join(str(r.get("body") or "") for r in developer_replies),
+        "_reply_records": [
+            {
+                "author": str((r.get("user") or {}).get("login") or ""),
+                "body": str(r.get("body") or ""),
+            }
+            for r in developer_replies
+        ],
     }

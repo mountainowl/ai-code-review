@@ -91,6 +91,13 @@ class InlineReviewTests(unittest.TestCase):
         self.assertEqual(0.85, cfg.min_confidence)
         self.assertEqual([], cfg.allowed_kinds)
 
+    def test_review_config_rejects_plugins_in_free_edition(self):
+        from bubo.config_values import ConfigError
+        from bubo.review_config import review_config_from_dict
+
+        with self.assertRaisesRegex(ConfigError, "does not support plugins"):
+            review_config_from_dict({"plugins": {"enabled": ["my-plugin"]}})
+
     def test_filter_findings_by_policy_suppresses_disputed_categories(self):
         from bubo.findings import filter_findings_by_policy
 

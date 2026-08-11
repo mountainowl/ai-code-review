@@ -411,6 +411,15 @@ def review_config_from_dict(
     poller = section(raw, "poller")
     agent = section(raw, "agents")
 
+    if "plugins" in raw:
+        raise ConfigError(
+            describe(
+                "This Bubo edition does not support plugins.",
+                reason="free Bubo never discovers or executes third-party plugin code",
+                fix="remove the [plugins] section; enterprise extensions require Bubo Enterprise.",
+            )
+        )
+
     provider = str(scm.get("provider", DEFAULT_PROVIDER)).strip().lower()
     if provider not in SUPPORTED_PROVIDERS:
         raise ConfigError(
